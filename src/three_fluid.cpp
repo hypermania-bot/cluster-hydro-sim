@@ -21,7 +21,7 @@ using namespace std;
 // Full 3-fluid simulation
 // ===================================================================
 
-ThreeFluidSim::ThreeFluidSim(const std::string &dir_) : dir(dir_) {}
+ThreeFluidSim::ThreeFluidSim() {}
 
 
 void ThreeFluidSim::initSolver(const int N) {
@@ -153,9 +153,9 @@ void ThreeFluidSim::printParams() const {
 }
 
 
-void ThreeFluidSim::initPlummerYiming(const double xi1, const double xi2, const double zeta1, const double zeta2){
+void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const double xi2, const double zeta1, const double zeta2){
   constexpr double r0 = 1.0;
-  constexpr double rho0 = 1.0;
+  //constexpr double rho0 = 1.0;
   
   // Replicating Yiming's code
   const int layer = 150;
@@ -489,6 +489,11 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       U[f][i] = val;
     }
   }
+
+  // Update P
+  for(int f = 0; f < NF; ++f) {
+    P[f] = (2.0 / 3.0) * (Rho[f].array() * U[f].array()).matrix();
+  }
   
 }
 
@@ -698,9 +703,11 @@ void ThreeFluidSim::applyBinaryFormation(const double dt) {
   // Menc[FB][N-1] += dMb;
 }
 
+
 // ----------------------------------------------------------------
 // 5. MAIN EVOLUTION (with adaptive time steps)
 // ----------------------------------------------------------------
+/*
 void ThreeFluidSim::evolve(const int maxSteps, ApproximateCentralDensityObserver &observer) {
   int step = 0;
   vector<VectorXd> lastU(U);
@@ -723,9 +730,6 @@ void ThreeFluidSim::evolve(const int maxSteps, ApproximateCentralDensityObserver
     // Apply binary formation before relaxation
     // applyBinaryFormation(Deltat);
 
-    for(int f = 0; f < NF; ++f) {
-      P[f] = (2.0 / 3.0) * (Rho[f].array() * U[f].array()).matrix();
-    }
     for(int f = 0; f < NF; ++f) {
       solveRelaxationLAPACKE(f);
       solveRelaxationLAPACKE(f);
@@ -761,15 +765,13 @@ void ThreeFluidSim::evolve(const int maxSteps, ApproximateCentralDensityObserver
   cout << "Simulation finished at t = " << totalTime << " (steps = " << step << ")" << endl;
   // cout << "numSnapshots = " << timeHistory.size() << endl;
   
-  prepare_directory_for_output(dir);
   observer.save(dir);
   
 
 }
-  
+*/
 
-
-void ThreeFluidSim::saveParams() const {
+void ThreeFluidSim::saveParams(const std::string &dir) const {
   ThreeFluidParam param;
   param.N = N;
   param.ms = ms;
@@ -781,7 +783,6 @@ void ThreeFluidSim::saveParams() const {
   param.Deltat = Deltat;
   param.StopDensity = StopDensity;
   param.thres = thres;
-  
-  prepare_directory_for_output(dir);
+
   save_param_for_Mathematica(param, dir);
 }

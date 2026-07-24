@@ -62,6 +62,47 @@ struct ApproximateCentralDensityObserver {
   }
 };
 
+
+struct ApproximateTimeObserver {
+  std::vector<double> times;
+  
+  std::vector<double> t_list;
+  std::vector<double> R_packed;
+  std::vector<double> Rho_s_packed;
+  std::vector<double> Rho_b_packed;
+  std::vector<double> Rho_d_packed;
+  std::vector<double> U_s_packed;
+  std::vector<double> U_b_packed;
+  std::vector<double> U_d_packed;
+
+  ApproximateTimeObserver(const std::vector<double> &times_) : times(times_) {}
+  
+  void operator()(const Eigen::VectorXd &R, const std::vector<Eigen::VectorXd> &Rho, const std::vector<Eigen::VectorXd> &U, const double t) {
+    const size_t current_idx = t_list.size();
+    if(current_idx < times.size() && t >= times[current_idx]) {
+      t_list.push_back(t);
+      R_packed.insert(R_packed.end(), R.begin(), R.end());
+      Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
+      Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
+      Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
+      U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
+      U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
+      U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
+    }
+  }
+  
+  void save(const std::string &dir) const {
+    write_to_file(t_list, dir + "t.dat");
+    write_to_file(R_packed, dir + "R.dat");
+    write_to_file(Rho_s_packed, dir + "Rho_s.dat");
+    write_to_file(Rho_b_packed, dir + "Rho_b.dat");
+    write_to_file(Rho_d_packed, dir + "Rho_d.dat");
+    write_to_file(U_s_packed, dir + "U_s.dat");
+    write_to_file(U_b_packed, dir + "U_b.dat");
+    write_to_file(U_d_packed, dir + "U_d.dat");
+  }
+};
+
 struct ThreeFluidParam {
   // Evolution parameters
   long long int N;
@@ -97,7 +138,7 @@ public:
   double StopDensity = 1e12;
   double thres = 1e-3;
   
-  // Data
+  // Internal state
   double totalTime = 0.0;
   std::vector<Eigen::VectorXd> Rho, U, Menc, P, R;
 
@@ -118,19 +159,14 @@ public:
   Eigen::VectorXd newR;
   Eigen::VectorXd newRho;
 
-
-  // Bulk output storage
-  // std::vector<double> timeHistory;
-  // std::vector<Eigen::VectorXd> RHistory;
-  // std::vector<std::vector<Eigen::VectorXd>> RhoHistory, UHistory, MencHistory;
-
-  std::string dir;
-
-  // Initialize solver along with path for saving data
-  ThreeFluidSim(const std::string &dir_);
+  // Initialize empty solver
+  ThreeFluidSim();
 
   // Allocate and zero memory for the solver
   void initSolver(const int N);
+
+  // Reset time evolution
+  void initControl();
   
   // Compute and assign coeffs c1[NF][NF], c2[NF] and c4[NF][NF]
   void initCoeffs();
@@ -139,14 +175,14 @@ public:
   void initCoeffsYiming();
 
   // Assign initial conditions using algorithm replicated from Yiming's paper
-  void initPlummerYiming(const double xi1, const double xi2, const double zeta1, const double zeta2);
+  void initPlummerYiming(const double rho0, const double xi1, const double xi2, const double zeta1, const double zeta2);
   // Assign initial conditions
   void initPlummer();
 
   void printParams() const;
   void printCoeffs() const;
 
-  void saveParams() const;
+  void saveParams(const std::string &) const;
 
 
   
@@ -178,8 +214,68 @@ public:
   // ----------------------------------------------------------------
   // void evolve(const int maxSteps);
 
-  // template<typename Observer>
-  void evolve(const int maxSteps, ApproximateCentralDensityObserver &observer);
+  template<typename Observer>
+  void evolve(const int maxSteps, Observer &observer) {
+    using namespace std;
+    using namespace Eigen;
+    int step = 0;
+    vector<VectorXd> lastU(U);
+  
+    while(true) {
+      observer(R[FS], Rho, U, totalTime);
+    
+      double curMaxDensity = max({Rho[FS][0], Rho[FB][0], Rho[FD][0]});
+      if(curMaxDensity > StopDensity) break;
+      if(step >= maxSteps) break;
+      
+      // Start of timestep
+      totalTime += Deltat;
+      lastU = U;
+      // cout << "(start of loop) U[FS] = " << U[FS].transpose() << endl;
+
+      solveConductionLAPACKE();
+      // cout << "(after conduction) U[FS] = " << U[FS].transpose() << endl;
+
+      // Apply binary formation before relaxation
+      // applyBinaryFormation(Deltat);
+
+      for(int f = 0; f < NF; ++f) {
+	solveRelaxationLAPACKE(f);
+	solveRelaxationLAPACKE(f);
+	// solveRelaxationLAPACKE(f);
+	// solveRelaxationLAPACKE(f);
+	// solveRelaxationLAPACKE(f);
+      }
+      // cout << "(after relaxation) U[FS] = " << U[FS].transpose() << endl;
+
+      realign();
+      // cout << "(after realignment) U[FS] = " << U[FS].transpose() << endl;
+      
+      updateEnclosedMass();
+
+      // Sanity checks
+      if(U[FS].array().isNaN().any()
+	 || U[FB].array().isNaN().any()
+	 || U[FD].array().isNaN().any()){
+	cout << "NaNs in U[]!" << endl;
+	exit(0);
+      }
+
+      // Adaptive timestep
+      double maxChange = 0.0;
+      for(int f = 0; f < NF; ++f) {
+	maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
+      }
+      Deltat = Deltat * thres / maxChange;
+
+      ++step;
+    }
+    
+    cout << "Simulation finished at t = " << totalTime << " (steps = " << step << ")" << endl;
+    // cout << "numSnapshots = " << timeHistory.size() << endl;
+  
+    //observer.save(dir);
+  }
 
   
 };
