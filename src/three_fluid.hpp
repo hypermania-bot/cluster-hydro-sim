@@ -21,87 +21,7 @@ constexpr int FB = 1;  // binaries
 constexpr int FD = 2;  // dark matter
 constexpr int NF = 3;
 
-struct ApproximateCentralDensityObserver {
-  std::vector<double> rho_c_list;
-  
-  std::vector<double> t_list;
-  std::vector<double> R_packed;
-  std::vector<double> Rho_s_packed;
-  std::vector<double> Rho_b_packed;
-  std::vector<double> Rho_d_packed;
-  std::vector<double> U_s_packed;
-  std::vector<double> U_b_packed;
-  std::vector<double> U_d_packed;
 
-  ApproximateCentralDensityObserver(const std::vector<double> &rho_c_list_) : rho_c_list(rho_c_list_) {}
-  
-  void operator()(const Eigen::VectorXd &R, const std::vector<Eigen::VectorXd> &Rho, const std::vector<Eigen::VectorXd> &U, const double t) {
-    const double rho_c = Rho[FS][0] + Rho[FB][0] + Rho[FD][0];
-    const size_t current_idx = t_list.size();
-    if(current_idx < rho_c_list.size() && rho_c >= rho_c_list[current_idx]) {
-      t_list.push_back(t);
-      R_packed.insert(R_packed.end(), R.begin(), R.end());
-      Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
-      Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
-      Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
-      U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
-      U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
-      U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
-    }
-  }
-  
-  void save(const std::string &dir) const {
-    write_to_file(t_list, dir + "t.dat");
-    write_to_file(R_packed, dir + "R.dat");
-    write_to_file(Rho_s_packed, dir + "Rho_s.dat");
-    write_to_file(Rho_b_packed, dir + "Rho_b.dat");
-    write_to_file(Rho_d_packed, dir + "Rho_d.dat");
-    write_to_file(U_s_packed, dir + "U_s.dat");
-    write_to_file(U_b_packed, dir + "U_b.dat");
-    write_to_file(U_d_packed, dir + "U_d.dat");
-  }
-};
-
-
-struct ApproximateTimeObserver {
-  std::vector<double> times;
-  
-  std::vector<double> t_list;
-  std::vector<double> R_packed;
-  std::vector<double> Rho_s_packed;
-  std::vector<double> Rho_b_packed;
-  std::vector<double> Rho_d_packed;
-  std::vector<double> U_s_packed;
-  std::vector<double> U_b_packed;
-  std::vector<double> U_d_packed;
-
-  ApproximateTimeObserver(const std::vector<double> &times_) : times(times_) {}
-  
-  void operator()(const Eigen::VectorXd &R, const std::vector<Eigen::VectorXd> &Rho, const std::vector<Eigen::VectorXd> &U, const double t) {
-    const size_t current_idx = t_list.size();
-    if(current_idx < times.size() && t >= times[current_idx]) {
-      t_list.push_back(t);
-      R_packed.insert(R_packed.end(), R.begin(), R.end());
-      Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
-      Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
-      Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
-      U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
-      U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
-      U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
-    }
-  }
-  
-  void save(const std::string &dir) const {
-    write_to_file(t_list, dir + "t.dat");
-    write_to_file(R_packed, dir + "R.dat");
-    write_to_file(Rho_s_packed, dir + "Rho_s.dat");
-    write_to_file(Rho_b_packed, dir + "Rho_b.dat");
-    write_to_file(Rho_d_packed, dir + "Rho_d.dat");
-    write_to_file(U_s_packed, dir + "U_s.dat");
-    write_to_file(U_b_packed, dir + "U_b.dat");
-    write_to_file(U_d_packed, dir + "U_d.dat");
-  }
-};
 
 struct ThreeFluidParam {
   // Evolution parameters
@@ -112,12 +32,18 @@ struct ThreeFluidParam {
   std::array<double, NF> c2; // Conduction
   std::array<double, NF*NF> c1; // Dynamical heating
   std::array<double, NF*NF> c4;  // Binary heating
+  
+  long long int binary_formation;
+  long long int tidal_cutoff;
+  double tidal_cutoff_factor;
+  double tidal_radius;
 
   // Numerical control parameters
   double Deltat;
   double StopDensity;
   double thres;
 };
+
 
 // ===================================================================
 // Full 3-fluid simulation
@@ -132,6 +58,12 @@ public:
   double c2[NF]; // Conduction
   double c1[NF][NF]; // Dynamical heating
   double c4[NF][NF]; // Binary heating
+
+  long long int binary_formation = 0;
+  long long int tidal_cutoff = 0;
+  double tidal_cutoff_factor = 50;
+  double tidal_radius = 1e1;
+
 
   // Numerical control parameters
   double Deltat = 1e-3;
@@ -209,6 +141,8 @@ public:
   // ----------------------------------------------------------------
   void applyBinaryFormation(const double dt);
 
+  void applyTidalCutoff();
+
   // ----------------------------------------------------------------
   // 5. MAIN EVOLUTION (with adaptive time steps)
   // ----------------------------------------------------------------
@@ -222,7 +156,10 @@ public:
     vector<VectorXd> lastU(U);
   
     while(true) {
-      observer(R[FS], Rho, U, totalTime);
+      // std::cout << std::setprecision(9) << std::left;
+      // cout << "step, Deltat = " << step << ", " << Deltat << endl;
+      // observer(R[FS], Rho, U, totalTime);
+      observer(*this);
     
       double curMaxDensity = max({Rho[FS][0], Rho[FB][0], Rho[FD][0]});
       if(curMaxDensity > StopDensity) break;
@@ -231,14 +168,21 @@ public:
       // Start of timestep
       totalTime += Deltat;
       lastU = U;
-      // cout << "(start of loop) U[FS] = " << U[FS].transpose() << endl;
 
       solveConductionLAPACKE();
-      // cout << "(after conduction) U[FS] = " << U[FS].transpose() << endl;
 
-      // Apply binary formation before relaxation
-      // applyBinaryFormation(Deltat);
-
+      // Adaptive timestep, should be calculated due to change from conduction step only
+      double maxChange = 0.0;
+      for(int f = 0; f < NF; ++f) {
+	maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
+      }
+      Deltat = Deltat * thres / maxChange;
+      
+      
+      // Binary formation should be applied before relaxation
+      if(binary_formation) { applyBinaryFormation(Deltat); }
+      if(tidal_cutoff) { applyTidalCutoff(); }
+      
       for(int f = 0; f < NF; ++f) {
 	solveRelaxationLAPACKE(f);
 	solveRelaxationLAPACKE(f);
@@ -246,12 +190,8 @@ public:
 	// solveRelaxationLAPACKE(f);
 	// solveRelaxationLAPACKE(f);
       }
-      // cout << "(after relaxation) U[FS] = " << U[FS].transpose() << endl;
-
-      realign();
-      // cout << "(after realignment) U[FS] = " << U[FS].transpose() << endl;
       
-      updateEnclosedMass();
+      realign();
 
       // Sanity checks
       if(U[FS].array().isNaN().any()
@@ -261,22 +201,173 @@ public:
 	exit(0);
       }
 
-      // Adaptive timestep
-      double maxChange = 0.0;
-      for(int f = 0; f < NF; ++f) {
-	maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
-      }
-      Deltat = Deltat * thres / maxChange;
+      // // Adaptive timestep
+      // double maxChange = 0.0;
+      // for(int f = 0; f < NF; ++f) {
+      // 	maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
+      // }
+      // Deltat = Deltat * thres / maxChange;
 
       ++step;
     }
     
     cout << "Simulation finished at t = " << totalTime << " (steps = " << step << ")" << endl;
     // cout << "numSnapshots = " << timeHistory.size() << endl;
-  
-    //observer.save(dir);
   }
 
   
 };
 
+
+
+struct ApproximateCentralDensityObserver {
+  std::vector<double> rho_c_list;
+  
+  std::vector<double> t_list;
+  std::vector<double> R_packed;
+  std::vector<double> Rho_s_packed;
+  std::vector<double> Rho_b_packed;
+  std::vector<double> Rho_d_packed;
+  std::vector<double> U_s_packed;
+  std::vector<double> U_b_packed;
+  std::vector<double> U_d_packed;
+
+  ApproximateCentralDensityObserver(const std::vector<double> &rho_c_list_) : rho_c_list(rho_c_list_) {}
+  
+  void operator()(const Eigen::VectorXd &R, const std::vector<Eigen::VectorXd> &Rho, const std::vector<Eigen::VectorXd> &U, const double t) {
+    const double rho_c = Rho[FS][0] + Rho[FB][0] + Rho[FD][0];
+    const size_t current_idx = t_list.size();
+    if(current_idx < rho_c_list.size() && rho_c >= rho_c_list[current_idx]) {
+      t_list.push_back(t);
+      R_packed.insert(R_packed.end(), R.begin(), R.end());
+      Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
+      Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
+      Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
+      U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
+      U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
+      U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
+    }
+  }
+  
+  void save(const std::string &dir) const {
+    write_to_file(t_list, dir + "t.dat");
+    write_to_file(R_packed, dir + "R.dat");
+    write_to_file(Rho_s_packed, dir + "Rho_s.dat");
+    write_to_file(Rho_b_packed, dir + "Rho_b.dat");
+    write_to_file(Rho_d_packed, dir + "Rho_d.dat");
+    write_to_file(U_s_packed, dir + "U_s.dat");
+    write_to_file(U_b_packed, dir + "U_b.dat");
+    write_to_file(U_d_packed, dir + "U_d.dat");
+  }
+};
+
+
+struct ApproximateTimeObserver {
+  std::vector<double> times;
+  
+  std::vector<double> t_list;
+  std::vector<double> R_packed;
+  std::vector<double> Rho_s_packed;
+  std::vector<double> Rho_b_packed;
+  std::vector<double> Rho_d_packed;
+  std::vector<double> U_s_packed;
+  std::vector<double> U_b_packed;
+  std::vector<double> U_d_packed;
+
+  ApproximateTimeObserver(const std::vector<double> &times_) : times(times_) {}
+  
+  void operator()(const ThreeFluidSim &sim) {
+    const Eigen::VectorXd &R = sim.R[FS];
+    const std::vector<Eigen::VectorXd> &Rho = sim.Rho;
+    const std::vector<Eigen::VectorXd> &U = sim.U;
+    const double t = sim.totalTime;
+    const size_t current_idx = t_list.size();
+    if(current_idx < times.size() && t >= times[current_idx]) {
+      t_list.push_back(t);
+      R_packed.insert(R_packed.end(), R.begin(), R.end());
+      Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
+      Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
+      Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
+      U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
+      U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
+      U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
+    }
+  }
+  
+  void save(const std::string &dir) const {
+    write_to_file(t_list, dir + "t.dat");
+    write_to_file(R_packed, dir + "R.dat");
+    write_to_file(Rho_s_packed, dir + "Rho_s.dat");
+    write_to_file(Rho_b_packed, dir + "Rho_b.dat");
+    write_to_file(Rho_d_packed, dir + "Rho_d.dat");
+    write_to_file(U_s_packed, dir + "U_s.dat");
+    write_to_file(U_b_packed, dir + "U_b.dat");
+    write_to_file(U_d_packed, dir + "U_d.dat");
+  }
+};
+
+
+struct LagrangianRadiiObserver {
+  std::vector<double> fraction;
+  
+  std::vector<double> t_list;
+  std::array<std::vector<double>, NF> radii_packed; // fraction.size * t_list.size radii for each elem
+
+  LagrangianRadiiObserver(const std::vector<double> &fraction_) : fraction(fraction_) {}
+  
+  void operator()(const ThreeFluidSim &sim) {
+    const Eigen::VectorXd &R = sim.R[FS];
+    const std::vector<Eigen::VectorXd> &Rho = sim.Rho;
+    const std::vector<Eigen::VectorXd> &Menc = sim.Menc;
+    const double t = sim.totalTime;
+    const long long int N = sim.N;
+    
+    //const size_t current_idx = t_list.size();
+    t_list.push_back(t);
+    for(int f = 0; f < NF; ++f){
+      for(double frac : fraction){
+	double threshold = Menc[f][N-1] * frac;
+	int idx = std::lower_bound(Menc[f].begin(), Menc[f].end(), threshold) - Menc[f].begin();
+	double r = 0;
+	if(idx == 0){
+	  // pow(R[f][0], 3) / 3.0 * Rho[f][0] == threshold
+	  r = pow(3.0 * threshold /  Rho[f][0], 1.0 / 3.0);
+	} else if(idx < N) {
+	  // Assume constant density in Lagrangian zone
+	  // threshold - Menc[idx-1] == (pow(r, 3) - pow(R[f][idx-1], 3)) / 3.0 * Rho[f][idx]
+	  r = pow(3.0 / Rho[f][idx] * (threshold - Menc[f][idx-1]) + pow(R[idx-1], 3), 1.0 / 3.0);
+	  
+	  // double t = (log(R[f][idx]) - log(R[f][idx-1])) / (log(R[f][idx]) - log(R[f][idx-1]));
+	  // r = exp(log(Rho[f][idx-1]) * (1-t) + log(Rho[f][idx]) * t);
+	} else {
+	  r = R[N-1];
+	}
+	radii_packed[f].push_back(r);
+      }
+    }
+  }
+  
+  void save(const std::string &dir) const {
+    write_to_file(fraction, dir + "radii_fraction.dat");
+    write_to_file(t_list, dir + "radii_t.dat");
+    write_to_file(radii_packed[FS], dir + "radii_s.dat");
+    write_to_file(radii_packed[FB], dir + "radii_b.dat");
+    write_to_file(radii_packed[FD], dir + "radii_d.dat");
+  }
+};
+
+
+template<typename... Observers>
+struct ObserverPack {
+  std::tuple<Observers & ...> observers;
+  
+  ObserverPack(Observers & ... observers_) : observers(observers_...) {}
+
+  void operator()(const ThreeFluidSim &sim) {
+    std::apply([&](auto &&... args) { ((args(sim)), ...); }, observers);
+  }
+
+  void save(const std::string &dir) const {
+    std::apply([&](auto &&... args) { ((args.save(dir)), ...); }, observers);
+  }
+};

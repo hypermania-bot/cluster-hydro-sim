@@ -92,6 +92,9 @@ void ThreeFluidSim::initCoeffs() {
   c4[FD][FS] = 0;
   c4[FD][FB] = 0.123679 / lnLsd * md / ms * md / (mb + md);
   c4[FD][FD] = 0;
+
+  binary_formation = 0;
+  tidal_cutoff = 0;
 }
 
 
@@ -120,6 +123,9 @@ void ThreeFluidSim::initCoeffsYiming() {
   c1[FS][FB] = c1[FB][FS] = 0;
   c1[FB][FD] = c1[FD][FB] = 0;
   c1[FS][FS] = c1[FB][FB] = c1[FD][FD] = 0;
+
+  binary_formation = 0;
+  tidal_cutoff = 0;
 }
 
 
@@ -150,6 +156,9 @@ void ThreeFluidSim::printParams() const {
   cout << "ms = " << ms << endl;
   cout << "mb = " << mb << endl;
   cout << "md = " << md << endl;
+
+  cout << "binary_formation = " << binary_formation << endl;
+  cout << "tidal_cutoff = " << tidal_cutoff << endl;
 }
 
 
@@ -179,15 +188,8 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
     Rho[FD][i] = rhosd / pow(1.0 + r2 / (rsd * rsd), 2.5);
   }
   // Rho[FS][N-1] = Rho[FB][N-1] = Rho[FD][N-1] = 0.0;
-  Menc[FS][0] = Rho[FS][0] * pow(R[0][0], 3) / 3.0;
-  Menc[FB][0] = Rho[FB][0] * pow(R[0][0], 3) / 3.0;
-  Menc[FD][0] = Rho[FD][0] * pow(R[0][0], 3) / 3.0;
-  for(int i = 1; i < N; ++i){
-    double vol = (pow(R[0][i], 3) - pow(R[0][i-1], 3)) / 3.0;
-    Menc[FS][i] = Menc[FS][i-1] + Rho[FS][i] * vol;
-    Menc[FB][i] = Menc[FB][i-1] + Rho[FB][i] * vol;
-    Menc[FD][i] = Menc[FD][i-1] + Rho[FD][i] * vol;
-  }
+  
+  updateEnclosedMass();
 
 
 
@@ -227,6 +229,8 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
     temp = Menc[f].head(N);
     Menc[f] = temp;
   }
+
+  updateEnclosedMass();
 }
   
 void ThreeFluidSim::initPlummer() {
@@ -261,6 +265,8 @@ void ThreeFluidSim::initPlummer() {
   // cout << "U[FS] = " << U[FS].transpose() << endl;
   // cout << "P[FS] = " << P[FS].transpose() << endl;
   // cout << endl;
+
+  updateEnclosedMass();
 }
 
 void ThreeFluidSim::updateEnclosedMass() {
@@ -704,72 +710,41 @@ void ThreeFluidSim::applyBinaryFormation(const double dt) {
 }
 
 
-// ----------------------------------------------------------------
-// 5. MAIN EVOLUTION (with adaptive time steps)
-// ----------------------------------------------------------------
-/*
-void ThreeFluidSim::evolve(const int maxSteps, ApproximateCentralDensityObserver &observer) {
-  int step = 0;
-  vector<VectorXd> lastU(U);
+void ThreeFluidSim::applyTidalCutoff() {
+  //const double tidal_radius = min({R[FS][N-1], R[FB][N-1], R[FD][N-1]});
+  // const double tidal_radius = 1e1;
   
-  while(true) {
-    observer(R[FS], Rho, U, totalTime);
-    
-    double curMaxDensity = max({Rho[FS][0], Rho[FB][0], Rho[FD][0]});
-    if(curMaxDensity > StopDensity) break;
-    if(step >= maxSteps) break;
-      
-    // Start of timestep
-    totalTime += Deltat;
-    lastU = U;
-    // cout << "(start of loop) U[FS] = " << U[FS].transpose() << endl;
+  for(int f = 0; f < NF; ++f) {
+    // if(tidal_radius < R[f][0]) {
+    //   Rho[f][0] *= pow(tidal_radius / R[f][0], 3);
+    // }
+    for(int i = 1; i < N-1; ++i) {
+      // This doesn't work because of numerical instability
+      // if(tidal_radius < R[f][i-1]) {
+      // 	Rho[f][i] = 1e-10;
+      // } else if(tidal_radius < R[f][i]) {
+      // 	double old_vol = pow(R[f][i], 3) - pow(R[f][i-1], 3);
+      // 	double new_vol = pow(tidal_radius, 3) - pow(R[f][i-1], 3);
+      // 	Rho[f][i] *= new_vol / old_vol;
+      // }
 
-    solveConductionLAPACKE();
-    // cout << "(after conduction) U[FS] = " << U[FS].transpose() << endl;
-
-    // Apply binary formation before relaxation
-    // applyBinaryFormation(Deltat);
-
-    for(int f = 0; f < NF; ++f) {
-      solveRelaxationLAPACKE(f);
-      solveRelaxationLAPACKE(f);
-      // solveRelaxationLAPACKE(f);
-      // solveRelaxationLAPACKE(f);
-      // solveRelaxationLAPACKE(f);
+      // This is equivalent to a - const * rho term.
+      // d rho / d t = - factor * rho
+      const double factor = tidal_cutoff_factor;
+      if(tidal_radius < R[f][i-1]){
+	Rho[f][i] *= 1.0 - factor * Deltat;
+      } else if(tidal_radius < R[f][i]) {
+	const double t = (tidal_radius - R[f][i-1]) / (R[f][i] - R[f][i-1]);
+	Rho[f][i] *= 1.0 - (1.0 - t) * factor * Deltat;
+      }
     }
-    // cout << "(after relaxation) U[FS] = " << U[FS].transpose() << endl;
-
-    realign();
-    // cout << "(after realignment) U[FS] = " << U[FS].transpose() << endl;
-      
-    updateEnclosedMass();
-
-    // Sanity checks
-    if(U[FS].array().isNaN().any()
-       || U[FB].array().isNaN().any()
-       || U[FD].array().isNaN().any()){
-      cout << "NaNs in U[]!" << endl;
-      exit(0);
-    }
-
-    // Adaptive timestep
-    double maxChange = 0.0;
-    for(int f = 0; f < NF; ++f) {
-      maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
-    }
-    Deltat = Deltat * thres / maxChange;
-
-    ++step;
+    Rho[f][N-1] = 0.0;
+     
+    P[f].array() = (2.0 / 3.0) * U[f].array() * Rho[f].array();
   }
-    
-  cout << "Simulation finished at t = " << totalTime << " (steps = " << step << ")" << endl;
-  // cout << "numSnapshots = " << timeHistory.size() << endl;
-  
-  observer.save(dir);
-  
-
+  updateEnclosedMass();
 }
-*/
+
 
 void ThreeFluidSim::saveParams(const std::string &dir) const {
   ThreeFluidParam param;
@@ -780,9 +755,14 @@ void ThreeFluidSim::saveParams(const std::string &dir) const {
   std::memcpy(param.c2.data(), c2, sizeof(c2));
   std::memcpy(param.c1.data(), c1, sizeof(c1));
   std::memcpy(param.c4.data(), c4, sizeof(c4));
+  param.binary_formation = binary_formation;
+  param.tidal_cutoff = tidal_cutoff;
+  param.tidal_cutoff_factor = tidal_cutoff_factor;
+  param.tidal_radius = tidal_radius;
   param.Deltat = Deltat;
   param.StopDensity = StopDensity;
   param.thres = thres;
 
   save_param_for_Mathematica(param, dir);
 }
+
