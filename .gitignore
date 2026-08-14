@@ -1,0 +1,8 @@
+/main
+/src/*.o
+/test/test_interaction
+/output/
+/output_*/
+/*.pdf
+/*.png
+__pycache__/

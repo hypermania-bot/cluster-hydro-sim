@@ -104,7 +104,7 @@ void tidal_bench_single(void){
 }
 
 void tidal_bench_AB(void){
-  const std::vector times_to_save({0.0, 1.0, 10.0, 100.0});
+  const std::vector times_to_save({0.0, 0.1, 0.5, 1.0, 2.0, 3.0, 10.0, 100.0});
   {
     ThreeFluidSim sim;
     sim.initSolver(150);

@@ -25,6 +25,7 @@ ThreeFluidSim::ThreeFluidSim() {}
 
 
 void ThreeFluidSim::initSolver(const int N) {
+  this->N = N;
   R.assign(NF, VectorXd::Zero(N));
   Rho.assign(NF, VectorXd::Zero(N));
   U.assign(NF, VectorXd::Zero(N));
@@ -367,7 +368,8 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       for (int f2 = 0; f2 < nf; ++f2) {
 	if (f2 == f) continue;
 	int col = i * nf + f2;
-	double cross = - Deltat * c1[f][f2] * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
+	// The exchange term is proportional to m_f U_f - m_f2 U_f2.
+	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
 	set_band(row, col, cross);
       }
@@ -415,7 +417,8 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       for (int f2 = 0; f2 < nf; ++f2) {
 	if (f2 == f) continue;
 	int col = i * nf + f2;
-	double cross = - Deltat * c1[f][f2] * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
+	// The exchange term is proportional to m_f U_f - m_f2 U_f2.
+	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
 	set_band(row, col, cross);
       }
@@ -623,12 +626,14 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
 // ----------------------------------------------------------------
 void ThreeFluidSim::realign() {
   double rMin = min({R[FS][0], R[FB][0], R[FD][0]});
-  double rMax = min({R[FS][N-1], R[FB][N-1], R[FD][N-1]});
+  double rMax = max({R[FS][N-1], R[FB][N-1], R[FD][N-1]});
     
   newR = rMin * pow(rMax / rMin, VectorXd::LinSpaced(N, 0.0, 1.0).array()).matrix();
 		      
     
   for (int f = 0; f < NF; ++f) {
+    const double totalMassBefore = Menc[f][N-1];
+
     // Align density (log-log interp)
     for (int i = 0; i < N-1; ++i) {
       auto it = lower_bound(R[f].begin(), R[f].end(), newR[i]);
@@ -649,6 +654,12 @@ void ThreeFluidSim::realign() {
       }
     }
     newRho[N-1] = 0.0;
+
+    double totalMassAfter = newRho[0] * pow(newR[0], 3) / 3.0;
+    for (int i = 1; i < N; ++i) {
+      totalMassAfter += newRho[i] * (pow(newR[i], 3) - pow(newR[i-1], 3)) / 3.0;
+    }
+    newRho.head(N-1) *= totalMassBefore / totalMassAfter;
     Rho[f] = newRho;
       
     // Recompute Menc
@@ -765,4 +776,3 @@ void ThreeFluidSim::saveParams(const std::string &dir) const {
 
   save_param_for_Mathematica(param, dir);
 }
-

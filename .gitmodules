@@ -1,0 +1,3 @@
+[submodule "external/boost-pfr"]
+	path = external/boost-pfr
+	url = https://github.com/boostorg/pfr.git
