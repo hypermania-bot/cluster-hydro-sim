@@ -72,15 +72,15 @@ public:
   
   // Internal state
   double totalTime = 0.0;
-  std::vector<Eigen::VectorXd> Rho, U, Menc, P, R;
+  std::array<Eigen::VectorXd, NF> Rho, U, Menc, P, R;
 
   // Temporary variables
   std::vector<double> conductionAB;
   std::vector<double> conductionBSTD;
   std::vector<int> conductionIPIV;
   
-  std::vector<Eigen::VectorXd> sqrtU;
-  std::vector<Eigen::VectorXd> logRho;
+  std::array<Eigen::VectorXd, NF> sqrtU;
+  std::array<Eigen::VectorXd, NF> logRho;
   Eigen::VectorXd logR;
 
   Eigen::VectorXd hydroDL;
@@ -153,7 +153,7 @@ public:
     using namespace std;
     using namespace Eigen;
     int step = 0;
-    vector<VectorXd> lastU(U);
+    std::array<Eigen::VectorXd, NF> lastU(U);
   
     while(true) {
       // std::cout << std::setprecision(9) << std::left;
@@ -227,8 +227,8 @@ struct CentralValueObserver {
   CentralValueObserver() {}
   
   void operator()(const ThreeFluidSim &sim) {
-    const std::vector<Eigen::VectorXd> &Rho = sim.Rho;
-    const std::vector<Eigen::VectorXd> &U = sim.U;
+    const auto &Rho = sim.Rho;
+    const auto &U = sim.U;
     const double t = sim.totalTime;
     t_list.push_back(t);
     for(int f = 0; f < NF; ++f){
@@ -307,8 +307,8 @@ struct ApproximateTimeObserver {
   
   void operator()(const ThreeFluidSim &sim) {
     const Eigen::VectorXd &R = sim.R[FS];
-    const std::vector<Eigen::VectorXd> &Rho = sim.Rho;
-    const std::vector<Eigen::VectorXd> &U = sim.U;
+    const auto &Rho = sim.Rho;
+    const auto &U = sim.U;
     const double t = sim.totalTime;
     const size_t current_idx = t_list.size();
     if(current_idx < times.size() && t >= times[current_idx]) {
@@ -346,8 +346,8 @@ struct LagrangianRadiiObserver {
   
   void operator()(const ThreeFluidSim &sim) {
     const Eigen::VectorXd &R = sim.R[FS];
-    const std::vector<Eigen::VectorXd> &Rho = sim.Rho;
-    const std::vector<Eigen::VectorXd> &Menc = sim.Menc;
+    const auto &Rho = sim.Rho;
+    const auto &Menc = sim.Menc;
     const double t = sim.totalTime;
     const long long int N = sim.N;
     

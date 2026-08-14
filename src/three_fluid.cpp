@@ -26,13 +26,16 @@ ThreeFluidSim::ThreeFluidSim() {}
 
 void ThreeFluidSim::initSolver(const int N) {
   this->N = N;
-  R.assign(NF, VectorXd::Zero(N));
-  Rho.assign(NF, VectorXd::Zero(N));
-  U.assign(NF, VectorXd::Zero(N));
-  Menc.assign(NF, VectorXd::Zero(N));
-  P.assign(NF, VectorXd::Zero(N));
-  sqrtU.assign(NF, VectorXd::Zero(N));
-  logRho.assign(NF, VectorXd::Zero(N-1));
+  for(int f = 0; f < NF; ++f){
+    R[f].resize(N);
+    Rho[f].resize(N);
+    U[f].resize(N);
+    Menc[f].resize(N);
+    P[f].resize(N);
+    sqrtU[f].resize(N);
+    logRho[f].resize(N-1);
+  }
+  
   logR = VectorXd::Zero(N-1);
 
   // Init conduction solver
