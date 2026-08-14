@@ -104,7 +104,7 @@ void tidal_bench_single(void){
 }
 
 void tidal_bench_AB(void){
-  const std::vector times_to_save({0.0, 1.0, 10.0, 100.0});
+  const std::vector times_to_save({0.0, 3.0, 3.2, 3.24, 3.243});
   {
     ThreeFluidSim sim;
     sim.initSolver(150);
@@ -137,8 +137,8 @@ void tidal_bench_AB(void){
     // Manually set DM mass
     sim.md = 0.1 * sim.ms;
     sim.tidal_cutoff = 1;
-    sim.tidal_cutoff_factor = 1e-3;
-    sim.tidal_radius = 5e1;
+    sim.tidal_cutoff_factor = 10;
+    sim.tidal_radius = 2;
 
     sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
 

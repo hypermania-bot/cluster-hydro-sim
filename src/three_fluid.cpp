@@ -345,16 +345,13 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       int row = i * nf + f;
 
       // Coefficients for same fluid (tridiagonal part)
-      double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - logRho[f][i-1] + logRho[f][i+1])
-	/ (8 * sqrtU[f][i-1]) / R2dlogR2;
-      double coefR = c2[f] * Deltat * (2*logR[i-1] - 2*logR[i] - 4 + logRho[f][i-1] - logRho[f][i+1])
-	/ (8 * sqrtU[f][i+1]) / R2dlogR2;
+      double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - logRho[f][i-1] + logRho[f][i+1]) / (8 * sqrtU[f][i-1]) / R2dlogR2;
+      double coefR = c2[f] * Deltat * (2*logR[i-1] - 2*logR[i] - 4 + logRho[f][i-1] - logRho[f][i+1]) / (8 * sqrtU[f][i+1]) / R2dlogR2;
       double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
 
       // Cross‑fluid terms (same i)
       for (int f2 = 0; f2 < nf; ++f2) {
-	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i]
-	  / pow(U[f][i] + U[f2][i], 1.5)
+	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
       }
 
@@ -367,7 +364,7 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       for (int f2 = 0; f2 < nf; ++f2) {
 	if (f2 == f) continue;
 	int col = i * nf + f2;
-	double cross = - Deltat * c1[f][f2] * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
+	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
 	set_band(row, col, cross);
       }
@@ -403,8 +400,7 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
 
       for (int f2 = 0; f2 < nf; ++f2) {
-	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i]
-	  / pow(U[f][i] + U[f2][i], 1.5)
+	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
       }
 
@@ -415,7 +411,7 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       for (int f2 = 0; f2 < nf; ++f2) {
 	if (f2 == f) continue;
 	int col = i * nf + f2;
-	double cross = - Deltat * c1[f][f2] * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
+	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
 	set_band(row, col, cross);
       }
@@ -623,7 +619,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
 // ----------------------------------------------------------------
 void ThreeFluidSim::realign() {
   double rMin = min({R[FS][0], R[FB][0], R[FD][0]});
-  double rMax = min({R[FS][N-1], R[FB][N-1], R[FD][N-1]});
+  double rMax = max({R[FS][N-1], R[FB][N-1], R[FD][N-1]});
     
   newR = rMin * pow(rMax / rMin, VectorXd::LinSpaced(N, 0.0, 1.0).array()).matrix();
 		      

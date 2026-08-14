@@ -47,7 +47,7 @@ static void run_and_measure_time(const std::string &description, const Callable 
 }
 
 
-static void prepare_directory_for_output(const std::string &dir) {
+inline void prepare_directory_for_output(const std::string &dir) {
   const std::filesystem::path dir_path(dir);
   std::error_code ec;
   std::cout << line_separator_with_description("Preparing directory for output") << '\n';
