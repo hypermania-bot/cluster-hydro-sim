@@ -219,47 +219,76 @@ public:
 };
 
 
-
-struct ApproximateCentralDensityObserver {
-  std::vector<double> rho_c_list;
-  
+struct CentralValueObserver {
   std::vector<double> t_list;
-  std::vector<double> R_packed;
-  std::vector<double> Rho_s_packed;
-  std::vector<double> Rho_b_packed;
-  std::vector<double> Rho_d_packed;
-  std::vector<double> U_s_packed;
-  std::vector<double> U_b_packed;
-  std::vector<double> U_d_packed;
+  std::array<std::vector<double>, NF> central_Rho;
+  std::array<std::vector<double>, NF> central_U;
 
-  ApproximateCentralDensityObserver(const std::vector<double> &rho_c_list_) : rho_c_list(rho_c_list_) {}
+  CentralValueObserver() {}
   
-  void operator()(const Eigen::VectorXd &R, const std::vector<Eigen::VectorXd> &Rho, const std::vector<Eigen::VectorXd> &U, const double t) {
-    const double rho_c = Rho[FS][0] + Rho[FB][0] + Rho[FD][0];
-    const size_t current_idx = t_list.size();
-    if(current_idx < rho_c_list.size() && rho_c >= rho_c_list[current_idx]) {
-      t_list.push_back(t);
-      R_packed.insert(R_packed.end(), R.begin(), R.end());
-      Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
-      Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
-      Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
-      U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
-      U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
-      U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
+  void operator()(const ThreeFluidSim &sim) {
+    const std::vector<Eigen::VectorXd> &Rho = sim.Rho;
+    const std::vector<Eigen::VectorXd> &U = sim.U;
+    const double t = sim.totalTime;
+    t_list.push_back(t);
+    for(int f = 0; f < NF; ++f){
+      central_Rho[f].push_back(Rho[f][0]);
+      central_U[f].push_back(U[f][0]);
     }
   }
-  
+
   void save(const std::string &dir) const {
-    write_to_file(t_list, dir + "t.dat");
-    write_to_file(R_packed, dir + "R.dat");
-    write_to_file(Rho_s_packed, dir + "Rho_s.dat");
-    write_to_file(Rho_b_packed, dir + "Rho_b.dat");
-    write_to_file(Rho_d_packed, dir + "Rho_d.dat");
-    write_to_file(U_s_packed, dir + "U_s.dat");
-    write_to_file(U_b_packed, dir + "U_b.dat");
-    write_to_file(U_d_packed, dir + "U_d.dat");
+    write_to_file(t_list, dir + "central_t.dat");
+    write_to_file(central_Rho[FS], dir + "central_Rho_s.dat");
+    write_to_file(central_Rho[FB], dir + "central_Rho_b.dat");
+    write_to_file(central_Rho[FD], dir + "central_Rho_d.dat");
+    write_to_file(central_U[FS], dir + "central_U_s.dat");
+    write_to_file(central_U[FB], dir + "central_U_b.dat");
+    write_to_file(central_U[FD], dir + "central_U_d.dat");
   }
 };
+
+
+// struct ApproximateCentralDensityObserver {
+//   std::vector<double> rho_c_list;
+  
+//   std::vector<double> t_list;
+//   std::vector<double> R_packed;
+//   std::vector<double> Rho_s_packed;
+//   std::vector<double> Rho_b_packed;
+//   std::vector<double> Rho_d_packed;
+//   std::vector<double> U_s_packed;
+//   std::vector<double> U_b_packed;
+//   std::vector<double> U_d_packed;
+
+//   ApproximateCentralDensityObserver(const std::vector<double> &rho_c_list_) : rho_c_list(rho_c_list_) {}
+  
+//   void operator()(const Eigen::VectorXd &R, const std::vector<Eigen::VectorXd> &Rho, const std::vector<Eigen::VectorXd> &U, const double t) {
+//     const double rho_c = Rho[FS][0] + Rho[FB][0] + Rho[FD][0];
+//     const size_t current_idx = t_list.size();
+//     if(current_idx < rho_c_list.size() && rho_c >= rho_c_list[current_idx]) {
+//       t_list.push_back(t);
+//       R_packed.insert(R_packed.end(), R.begin(), R.end());
+//       Rho_s_packed.insert(Rho_s_packed.end(), Rho[FS].begin(), Rho[FS].end());
+//       Rho_b_packed.insert(Rho_b_packed.end(), Rho[FB].begin(), Rho[FB].end());
+//       Rho_d_packed.insert(Rho_d_packed.end(), Rho[FD].begin(), Rho[FD].end());
+//       U_s_packed.insert(U_s_packed.end(), U[FS].begin(), U[FS].end());
+//       U_b_packed.insert(U_b_packed.end(), U[FB].begin(), U[FB].end());
+//       U_d_packed.insert(U_d_packed.end(), U[FD].begin(), U[FD].end());
+//     }
+//   }
+  
+//   void save(const std::string &dir) const {
+//     write_to_file(t_list, dir + "t.dat");
+//     write_to_file(R_packed, dir + "R.dat");
+//     write_to_file(Rho_s_packed, dir + "Rho_s.dat");
+//     write_to_file(Rho_b_packed, dir + "Rho_b.dat");
+//     write_to_file(Rho_d_packed, dir + "Rho_d.dat");
+//     write_to_file(U_s_packed, dir + "U_s.dat");
+//     write_to_file(U_b_packed, dir + "U_b.dat");
+//     write_to_file(U_d_packed, dir + "U_d.dat");
+//   }
+// };
 
 
 struct ApproximateTimeObserver {

@@ -66,7 +66,8 @@ void tidal_bench_single(void){
     
     ApproximateTimeObserver observer1(times_to_save);
     LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-    ObserverPack observer(observer1, observer2);
+    CentralValueObserver observer3;
+    ObserverPack observer(observer1, observer2, observer3);
     
     std::string dir = "output/one_fluid_without_tidal/";
     prepare_directory_for_output(dir);
@@ -143,7 +144,7 @@ void tidal_bench_AB(void){
     sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
 
     // LagrangianRadiiObserver observer({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-    ApproximateTimeObserver observer1(times_to_save);
+    ApproximateTimeObserver observer1({0.0, 1.0, 1.8, 1.89, 1.898});
     LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
     ObserverPack observer(observer1, observer2);
     
@@ -158,7 +159,7 @@ void tidal_bench_AB(void){
 
 int main() {
   // one_fluid_split_in_two();
-  // tidal_bench_single();
-  tidal_bench_AB();
+  tidal_bench_single();
+  // tidal_bench_AB();
   return 0;
 }

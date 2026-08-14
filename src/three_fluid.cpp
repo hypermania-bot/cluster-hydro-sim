@@ -25,6 +25,7 @@ ThreeFluidSim::ThreeFluidSim() {}
 
 
 void ThreeFluidSim::initSolver(const int N) {
+  this->N = N;
   R.assign(NF, VectorXd::Zero(N));
   Rho.assign(NF, VectorXd::Zero(N));
   U.assign(NF, VectorXd::Zero(N));
