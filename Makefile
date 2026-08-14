@@ -24,7 +24,7 @@ program_CXX_OBJS := ${program_CXX_SRCS:.cpp=.o}
 program_CXX_ASMS := ${program_CXX_SRCS:.cpp=.s}
 
 program_OBJS := $(program_C_OBJS) $(program_CXX_OBJS)
-program_INCLUDE_DIRS := "../../BHQuasinormalModes/QuasiNormalModes/external"
+program_INCLUDE_DIRS := external/eigen external/boost-pfr/include
 program_LIBRARY_DIRS :=
 program_LIBRARIES := m dl quadmath openblas lapacke lapack
 
