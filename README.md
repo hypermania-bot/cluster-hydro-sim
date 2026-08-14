@@ -124,32 +124,36 @@ Run from the repository root so the relative output paths resolve correctly:
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./main
 ```
 
-The active entry point runs two Ardi--Baumgardt comparison cases:
+The active entry point runs two one-fluid tidal comparison cases:
 
 | Output directory | Tidal removal | Tidal radius | Removal factor |
 | --- | ---: | ---: | ---: |
-| `output/baseline_AB/` | off | -- | -- |
-| `output/with_tidal_AB/` | on | `2` | `10` |
+| `output/one_fluid_without_tidal/` | off | -- | -- |
+| `output/one_fluid_with_tidal/` | on | `10` | `50` |
 
-Both cases use 150 zones, `m_d/m_s = 0.1`, equal initial single-star and
-dark-matter density profiles, and a negligible binary density. The active
-`initCoeffsYiming()` configuration enables single-star conduction and
-single-star/dark-matter exchange, but disables binary conduction, binary
-heating, and binary formation. Other experiment functions are present in
-`src/main.cpp` but are not selected by a runtime option.
+Both cases use 150 zones, `m_d = m_s`, and initial central-density ratios
+`rho_s:rho_b:rho_d = 1:1e-10:1e-10`. The dark-matter conduction coefficient
+is set equal to the single-star coefficient so that the negligible binary and
+dark-matter populations leave an effectively one-fluid calculation. The
+tidal case applies the explicit density sink outside `r = 10`; the no-tidal
+case additionally records the central density and specific energy at every
+step. Binary conduction, binary heating, and binary formation remain
+disabled. Other experiment functions are present in `src/main.cpp` but are
+not selected by a runtime option.
 
 On an Ubuntu 22 system with GCC 11, the current default build completed both
-cases in approximately 10 seconds. The isolated case stopped at `t = 3.24337`
-after 15,933 steps, and the tidal case stopped at `t = 1.89870` after 20,201
+cases in approximately 15 seconds. The no-tidal case stopped at `t = 5.56517`
+after 15,795 steps, and the tidal case stopped at `t = 5.53821` after 40,135
 steps. These values are reference observations, not regression-test
-tolerances.
+tolerances, and may vary with the compiler and target architecture.
 
 `make clean` removes the executable and object files. It deliberately leaves
 simulation output in place.
 
 ## Output format
 
-Each run directory contains packed, headerless binary arrays:
+A run directory contains parameter metadata and the packed, headerless binary
+arrays produced by its attached observers:
 
 | File | Contents | Shape |
 | --- | --- | --- |
@@ -160,6 +164,9 @@ Each run directory contains packed, headerless binary arrays:
 | `radii_t.dat` | Lagrangian-radius sample times | `n_radius_sample` |
 | `radii_fraction.dat` | enclosed-mass fractions | `n_fraction` |
 | `radii_s.dat`, `radii_b.dat`, `radii_d.dat` | component Lagrangian radii | `n_radius_sample x n_fraction` |
+| `central_t.dat` | central-value sample times | `n_state` |
+| `central_Rho_s.dat`, `central_Rho_b.dat`, `central_Rho_d.dat` | component central densities | `n_state` |
+| `central_U_s.dat`, `central_U_b.dat`, `central_U_d.dat` | component central specific energies | `n_state` |
 
 Numeric arrays are native binary `double` values; on the tested x86-64 system
 they are little-endian IEEE-754 `float64`. Snapshot times are approximate:
@@ -167,6 +174,11 @@ the observer records the first evolved state whose time reaches each requested
 value. If a run ends before a requested time, that snapshot is absent. The
 Lagrangian-radius observer, by contrast, records every evolution step and can
 therefore consume substantial memory in a long run.
+
+The `central_*` files are currently written only by the no-tidal run. Its
+central-value observer is called at the same cadence as the Lagrangian-radius
+observer, including the initial and terminal states, so `central_t.dat` and
+`radii_t.dat` have the same length and timestamps for that run.
 
 The parameter metadata consists of `param.dat`, `paramNames.txt`,
 `paramTypes.txt`, and `paramOffsets.txt`. `param.dat` is a raw C++
