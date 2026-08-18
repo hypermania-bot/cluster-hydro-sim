@@ -175,7 +175,7 @@ void binary_formation(void){
   //   LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
   //   ObserverPack observer(observer1, observer2);
     
-  //   std::string dir = "output/one_fluid_Yiming/";
+  //   std::string dir = "output/one_fluid_Yiming_test/";
   //   prepare_directory_for_output(dir);
   //   sim.saveParams(dir);
   //   sim.evolve(50000000, observer);
@@ -192,7 +192,7 @@ void binary_formation(void){
     sim.c2[FD] = sim.c2[FS];
   
     sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
-    sim.binary_formation = 1;
+    sim.binary_formation = 2;
 
     ApproximateTimeObserver observer1(times_to_save);
     LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});

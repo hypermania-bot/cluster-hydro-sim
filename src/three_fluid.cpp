@@ -696,6 +696,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
 
       // dimensionless formation rate from tidal capture
+      // dn_dt is the time derivative of binary number density
       // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
       // double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd;
       // double dn_dt_tc = pow(Rho[FS][i], 2) / lnLsd;
@@ -705,7 +706,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
-      dM_dt += (dn_dt_tc + dn_dt_3b) * vol;
+      dM_dt += ms * (dn_dt_tc + dn_dt_3b) * vol;
     }
 
     // Scale Rho so that mass is transferred from single star to binary
@@ -722,6 +723,37 @@ void ThreeFluidSim::applyBinaryFormation() {
     }
     
     std::cout << "M_FS_ratio, M_FB_ratio = " << M_FS_ratio << "," << M_FB_ratio << std::endl;
+  } else if(binary_formation == 2) {
+      // Transfer by each Lagrangian zone
+    
+    for(int i = 0; i < N; ++i){
+      const double MtotSys = 1e9;
+      const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
+
+      // dimensionless formation rate from tidal capture
+      // dn_dt is the time derivative of binary number density
+      // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
+      // double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd;
+      // double dn_dt_tc = pow(Rho[FS][i], 2) / lnLsd;
+      double dn_dt_tc = 0;
+
+      // dimensionless formation rate from 3-body interaction
+      double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      // double dn_dt_3b = 0;
+      double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
+      double dM = mb * (dn_dt_tc + dn_dt_3b) * vol * Deltat;
+
+      double RhoB_new = (Rho[FS][i] * U[FS][i] + Rho[FB][i] * U[FB][i] - (Rho[FS][i] - dM) * U[FS][i]) / (Rho[FB][i] + dM);
+      
+      Rho[FS][i] -= dM;
+      Rho[FB][i] += dM;
+      U[FB][i] = RhoB_new;
+    }
+    updateEnclosedMass();
+
+    for(int f = 0; f < NF; ++f) {
+      P[f].array() = (2.0 / 3.0) * (Rho[f].array() * U[f].array());
+    }
   }
   
 }
