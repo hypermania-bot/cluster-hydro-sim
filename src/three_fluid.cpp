@@ -724,9 +724,16 @@ void ThreeFluidSim::applyBinaryFormation() {
     
     std::cout << "M_FS_ratio, M_FB_ratio = " << M_FS_ratio << "," << M_FB_ratio << std::endl;
   } else if(binary_formation == 2) {
-      // Transfer by each Lagrangian zone
+    // Transfer by each Lagrangian zone
+    // To preserve energy conservation at each binary formation step, we require
+    // \begin{align}
+    // & \rho_s u_s + \rho_b u_b = \rho_s' u_s' + \rho_b' u_b' \nonumber \\
+    // & u_s = u_s'
+    // \end{align}
+    // The first equation fixes total heat energy at each Lagrangian zone.
+    // The second equation states that binary formation doesn't change the internal energy of the single star specie.
     
-    for(int i = 0; i < N; ++i){
+    for(int i = 0; i < N-1; ++i){
       const double MtotSys = 1e9;
       const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
 
@@ -738,15 +745,15 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 1e-8 * 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
-      double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
-      double dM = mb * (dn_dt_tc + dn_dt_3b) * vol * Deltat;
+      // double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
+      double dRho = mb * (dn_dt_tc + dn_dt_3b) * Deltat;
 
-      double RhoB_new = (Rho[FS][i] * U[FS][i] + Rho[FB][i] * U[FB][i] - (Rho[FS][i] - dM) * U[FS][i]) / (Rho[FB][i] + dM);
+      double RhoB_new = (Rho[FS][i] * U[FS][i] + Rho[FB][i] * U[FB][i] - (Rho[FS][i] - dRho) * U[FS][i]) / (Rho[FB][i] + dRho);
       
-      Rho[FS][i] -= dM;
-      Rho[FB][i] += dM;
+      Rho[FS][i] -= dRho;
+      Rho[FB][i] += dRho;
       U[FB][i] = RhoB_new;
     }
     updateEnclosedMass();

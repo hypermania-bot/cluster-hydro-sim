@@ -158,7 +158,7 @@ void tidal_bench_AB(void){
 }
 
 void binary_formation(void){
-  const std::vector times_to_save({0.0, 5.5, 5.565, 5.56517});
+  const std::vector times_to_save({0.0, 5.3, 5.36, 5.366});
 
   // {
   //   ThreeFluidSim sim;
