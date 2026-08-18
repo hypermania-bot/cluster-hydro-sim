@@ -697,10 +697,13 @@ void ThreeFluidSim::applyBinaryFormation() {
 
       // dimensionless formation rate from tidal capture
       // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
-      double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd; 
+      // double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd;
+      // double dn_dt_tc = pow(Rho[FS][i], 2) / lnLsd;
+      double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5)); 
+      double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      // double dn_dt_3b = 0;
       double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       dM_dt += (dn_dt_tc + dn_dt_3b) * vol;
     }
@@ -713,6 +716,10 @@ void ThreeFluidSim::applyBinaryFormation() {
       Rho[FB][i] *= M_FB_ratio;
     }
     updateEnclosedMass();
+
+    for(int f = 0; f < NF; ++f) {
+      P[f].array() = (2.0 / 3.0) * (Rho[f].array() * U[f].array());
+    }
     
     std::cout << "M_FS_ratio, M_FB_ratio = " << M_FS_ratio << "," << M_FB_ratio << std::endl;
   }

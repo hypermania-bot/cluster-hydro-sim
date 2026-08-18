@@ -177,7 +177,7 @@ public:
       
       
       // Binary formation should be applied before relaxation
-      if(binary_formation) { applyBinaryFormation(); }
+
       if(tidal_cutoff) { applyTidalCutoff(); }
       
       for(int f = 0; f < NF; ++f) {
@@ -197,7 +197,7 @@ public:
 	cout << "NaNs in U[]!" << endl;
 	exit(0);
       }
-
+      if(binary_formation) { applyBinaryFormation(); }
       
       totalTime += Deltat;      
       Deltat = Deltat * thres / maxChange;
