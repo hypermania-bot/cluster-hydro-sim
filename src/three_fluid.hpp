@@ -165,7 +165,6 @@ public:
       if(step >= maxSteps) break;
       
       // Start of timestep
-      totalTime += Deltat;
       lastU = U;
 
       solveConductionLAPACKE();
@@ -175,7 +174,6 @@ public:
       for(int f = 0; f < NF; ++f) {
 	maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
       }
-      Deltat = Deltat * thres / maxChange;
       
       
       // Binary formation should be applied before relaxation
@@ -200,13 +198,9 @@ public:
 	exit(0);
       }
 
-      // // Adaptive timestep
-      // double maxChange = 0.0;
-      // for(int f = 0; f < NF; ++f) {
-      // 	maxChange = max(maxChange, ((U[f].array() - lastU[f].array()).abs() / lastU[f].array()).maxCoeff());
-      // }
-      // Deltat = Deltat * thres / maxChange;
-
+      
+      totalTime += Deltat;      
+      Deltat = Deltat * thres / maxChange;
       ++step;
     }
     

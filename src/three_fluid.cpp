@@ -712,7 +712,8 @@ void ThreeFluidSim::applyBinaryFormation() {
       Rho[FS][i] *= M_FS_ratio;
       Rho[FB][i] *= M_FB_ratio;
     }
-
+    updateEnclosedMass();
+    
     std::cout << "M_FS_ratio, M_FB_ratio = " << M_FS_ratio << "," << M_FB_ratio << std::endl;
   }
   
