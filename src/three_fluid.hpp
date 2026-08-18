@@ -139,7 +139,7 @@ public:
   // ----------------------------------------------------------------
   // 4. BINARY FORMATION (simple total-mass transfer, notes 1.4)
   // ----------------------------------------------------------------
-  void applyBinaryFormation(const double dt);
+  void applyBinaryFormation();
 
   void applyTidalCutoff();
 
@@ -158,7 +158,6 @@ public:
     while(true) {
       // std::cout << std::setprecision(9) << std::left;
       // cout << "step, Deltat = " << step << ", " << Deltat << endl;
-      // observer(R[FS], Rho, U, totalTime);
       observer(*this);
     
       double curMaxDensity = max({Rho[FS][0], Rho[FB][0], Rho[FD][0]});
@@ -180,7 +179,7 @@ public:
       
       
       // Binary formation should be applied before relaxation
-      if(binary_formation) { applyBinaryFormation(Deltat); }
+      if(binary_formation) { applyBinaryFormation(); }
       if(tidal_cutoff) { applyTidalCutoff(); }
       
       for(int f = 0; f < NF; ++f) {

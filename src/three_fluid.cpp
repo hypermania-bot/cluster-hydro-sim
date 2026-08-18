@@ -681,32 +681,41 @@ void ThreeFluidSim::realign() {
 }
 
 // ----------------------------------------------------------------
-// 4. BINARY FORMATION (simple total-mass transfer, notes 1.4)
+// 4. BINARY FORMATION
 // ----------------------------------------------------------------
-void ThreeFluidSim::applyBinaryFormation(const double dt) {
-  using namespace std::numbers;
-  double mi[NF] = {ms, mb, md};
-  // Calculate total binary formation rate
-  double dM_dt = 0;
-  for(int i = 1; i < N; ++i){
-    // needs to be casted in dimensionless form
-    double ns = Rho[FS][i] / mi[FS];
-    double vm = sqrt(2.0 / 3.0 * U[FS][i]);
-    double dn3b_dt = 0.9 * pow(3.0, 4.5) * pow(ns, 3) * pow(mi[FS], 5) / pow(vm, 9);
-    dM_dt += 4 * pi * pow(R[FS][i], 2) * (R[FS][i] - R[FS][i-1]) * dn3b_dt;
-  }
+void ThreeFluidSim::applyBinaryFormation() {
+  
+  if(binary_formation == 1) {
+    // (simple total-mass transfer, notes 1.4)
+    using namespace std::numbers;
+    
+    // Calculate total binary formation rate
+    double dM_dt = 0;
+    for(int i = 0; i < N; ++i){
+      const double MtotSys = 1e9;
+      const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
 
-  // Scale Rho so that mass is transferred from single star to binary
-  double M_FS_ratio = (Menc[FS][N-1] - dM_dt * dt) / Menc[FS][N-1];
-  double M_FB_ratio = (Menc[FB][N-1] + dM_dt * dt) / Menc[FB][N-1];
-  for(int i = 1; i < N; ++i){
-    Rho[FS][i] *= M_FS_ratio;
-    Rho[FB][i] *= M_FB_ratio;
-  }
+      // dimensionless formation rate from tidal capture
+      // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
+      double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd; 
 
-  // Update Menc?
-  // Menc[FS][N-1] -= dMb;
-  // Menc[FB][N-1] += dMb;
+      // dimensionless formation rate from 3-body interaction
+      double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5)); 
+      double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
+      dM_dt += (dn_dt_tc + dn_dt_3b) * vol;
+    }
+
+    // Scale Rho so that mass is transferred from single star to binary
+    double M_FS_ratio = (Menc[FS][N-1] - dM_dt * Deltat) / Menc[FS][N-1];
+    double M_FB_ratio = (Menc[FB][N-1] + dM_dt * Deltat) / Menc[FB][N-1];
+    for(int i = 0; i < N; ++i){
+      Rho[FS][i] *= M_FS_ratio;
+      Rho[FB][i] *= M_FB_ratio;
+    }
+
+    std::cout << "M_FS_ratio, M_FB_ratio = " << M_FS_ratio << "," << M_FB_ratio << std::endl;
+  }
+  
 }
 
 
