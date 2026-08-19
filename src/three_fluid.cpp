@@ -237,30 +237,26 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
   updateEnclosedMass();
 }
   
-void ThreeFluidSim::initPlummer() {
+void ThreeFluidSim::initPlummer(const double rho0, const double xi1, const double xi2, const double zeta1, const double zeta2) {
   constexpr double r0 = 1.0;
-  constexpr double rho0 = 1.0;
-
+  
   for(int f = 0; f < NF; ++f) {
-    for (int i = 0; i < N; ++i) {
-      R[f][i] = pow(10.0, -2.0 + (5.0 * i) / (N - 1));
-    }
+    R[f].array() = pow(10.0, VectorXd::LinSpaced(N, -2.0, 3.0).array());
   }
     
-  double rss = r0, rsb = r0, rsd = r0;
-  double rhoss = rho0, rhosb = rho0, rhosd = rho0;
+  double rss = r0, rsb = zeta1 * r0, rsd = zeta2 * r0;
+  double rhoss = rho0, rhosb = xi1 * rho0, rhosd = xi2 * rho0;
   for (int i = 0; i < N; ++i) {
-    // double r2 = (i==0) ? pow(R[0][0] / 2, 2) : pow((R[0][i-1] + R[0][i]) / 2, 2);
-    double r2 = pow(R[0][i], 2);
-    Rho[FS][i] = 0.9 * rhoss / pow(1.0 + r2 / (rss * rss), 2.5);
-    Rho[FB][i] = 0.05 * rhosb / pow(1.0 + r2 / (rsb * rsb), 2.5);
-    Rho[FD][i] = 0.05 * rhosd / pow(1.0 + r2 / (rsd * rsd), 2.5);
+    double r2 = (i==0) ? pow(R[0][0] / 2, 2) : pow((R[0][i-1] + R[0][i]) / 2, 2);
+    Rho[FS][i] = rhoss / pow(1.0 + r2 / (rss * rss), 2.5);
+    Rho[FB][i] = rhosb / pow(1.0 + r2 / (rsb * rsb), 2.5);
+    Rho[FD][i] = rhosd / pow(1.0 + r2 / (rsd * rsd), 2.5);
     U[FS][i] = rhoss * pow(rss, 3) / pow(1.0 + r2 / (rss * rss), 0.5) / 12;
     U[FB][i] = rhosb * pow(rsb, 3) / pow(1.0 + r2 / (rsb * rsb), 0.5) / 12;
     U[FD][i] = rhosd * pow(rsd, 3) / pow(1.0 + r2 / (rsd * rsd), 0.5) / 12;
-    P[FS][i] = (2.0 / 3.0) * U[FS][i] * Rho[FS][i];
-    P[FB][i] = (2.0 / 3.0) * U[FB][i] * Rho[FB][i];
-    P[FD][i] = (2.0 / 3.0) * U[FD][i] * Rho[FD][i];
+    // P[FS][i] = (2.0 / 3.0) * U[FS][i] * Rho[FS][i];
+    // P[FB][i] = (2.0 / 3.0) * U[FB][i] * Rho[FB][i];
+    // P[FD][i] = (2.0 / 3.0) * U[FD][i] * Rho[FD][i];
   }
   Rho[FS][N-1] = Rho[FB][N-1] = Rho[FD][N-1] = 0.0;
 
@@ -270,6 +266,10 @@ void ThreeFluidSim::initPlummer() {
   // cout << "P[FS] = " << P[FS].transpose() << endl;
   // cout << endl;
 
+  for(int f = 0; f < NF; ++f){
+    // U[f].array() = 1.5 * P[f].array() / Rho[f].array();
+    P[f].array() = (2.0 / 3.0) * U[f].array() * Rho[f].array();
+  }
   updateEnclosedMass();
 }
 
@@ -287,26 +287,23 @@ void ThreeFluidSim::updateEnclosedMass() {
 // THIS IS THE VERSION OF CODE solveConduction WE ACTUALLY USE
 // ----------------------------------------------------------------
 void ThreeFluidSim::solveConductionLAPACKE() {
-  const int n_rad = N;               // number of radial points per fluid
-  const int nf = NF;                 // number of fluids (3)
-  const int n_eq = nf * n_rad;       // total number of unknowns
-  const int kl = nf;                 // number of subdiagonals (3)
-  const int ku = nf;                 // number of superdiagonals (3)
+  // const int n_rad = N;               // number of radial points per fluid
+  // const int nf = NF;                 // number of fluids (3)
+  const int n_eq = NF * N;       // total number of unknowns
+  const int kl = NF;                 // number of subdiagonals (3)
+  const int ku = NF;                 // number of superdiagonals (3)
   const int ldab = 2 * kl + ku + 1;      // leading dimension of banded storage (7)
 
   auto &conductionB = conductionBSTD;
     
-  for (int f = 0; f < nf; ++f) {
+  for (int f = 0; f < NF; ++f) {
     sqrtU[f] = U[f].array().sqrt().matrix();
-    logRho[f] = Rho[f].head(n_rad - 1).array().log().matrix();
+    logRho[f] = Rho[f].head(N - 1).array().log().matrix();
   }
-  logR = R[FS].head(n_rad - 1).array().log().matrix();
+  logR = R[FS].head(N - 1).array().log().matrix();
 
   // ---------- Build the banded matrix and RHS ----------
-  // conductionAB.array() = 0;
-  // conductionB.array() = 0;
   fill(conductionAB.begin(), conductionAB.end(), 0.0);
-  // fill(conductionB.begin(), conductionB.end(), 0.0); // Every entry of B is filled
 
   // Helper lambda to set an entry in banded storage (column‑major)
   auto set_band = [&](const int row, const int col, const double val)->void{
@@ -325,28 +322,28 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 
     
   // ----- Innermost boundary (i = 0) -----
-  for (int f = 0; f < nf; ++f) {
+  for (int f = 0; f < NF; ++f) {
     int row = f;                     // i=0, fluid f
     set_band(row, row, 1.0);         // diagonal
-    set_band(row, row + nf, -1.0);   // coupling to i=1, same fluid
+    set_band(row, row + NF, -1.0);   // coupling to i=1, same fluid
     conductionB[row] = 0.0;
   }
-  // ----- Outermost boundary (i = n_rad-1) -----
-  for (int f = 0; f < nf; ++f) {
-    int row = (n_rad - 1) * nf + f;
+  // ----- Outermost boundary (i = N-1) -----
+  for (int f = 0; f < NF; ++f) {
+    int row = (N - 1) * NF + f;
     set_band(row, row, 1.0);
-    conductionB[row] = U[f][n_rad - 1];
+    conductionB[row] = U[f][N - 1];
   }
 
   double mi[3] = {ms, mb, md};   // masses (FS, FB, FD)
 
-  // ----- Bulk zones: i = 1 ... n_rad-3 -----
-  for (int i = 1; i < n_rad - 2; ++i) {
+  // ----- Bulk zones: i = 1 ... N-3 -----
+  for (int i = 1; i < N - 2; ++i) {
     double dlogR = logR[i] - logR[i-1];
     double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
 
-    for (int f = 0; f < nf; ++f) {
-      int row = i * nf + f;
+    for (int f = 0; f < NF; ++f) {
+      int row = i * NF + f;
 
       // Coefficients for same fluid (tridiagonal part)
       double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - logRho[f][i-1] + logRho[f][i+1]) / (8 * sqrtU[f][i-1]) / R2dlogR2;
@@ -354,20 +351,20 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
 
       // Cross‑fluid terms (same i)
-      for (int f2 = 0; f2 < nf; ++f2) {
+      for (int f2 = 0; f2 < NF; ++f2) {
 	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
       }
 
       // Set band entries
-      set_band(row, row - nf, coefL);   // previous i, same f
+      set_band(row, row - NF, coefL);   // previous i, same f
       set_band(row, row, coefC);        // diagonal
-      set_band(row, row + nf, coefR);   // next i, same f
+      set_band(row, row + NF, coefR);   // next i, same f
 
       // Cross terms (different fluids, same i)
-      for (int f2 = 0; f2 < nf; ++f2) {
+      for (int f2 = 0; f2 < NF; ++f2) {
 	if (f2 == f) continue;
-	int col = i * nf + f2;
+	int col = i * NF + f2;
 	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
 	set_band(row, col, cross);
@@ -380,22 +377,22 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 	  * ( -8 * sqrtU[f][i]
 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + logRho[f][i-1] - logRho[f][i+1])
 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - logRho[f][i-1] + logRho[f][i+1]) );
-	for (int f2 = 0; f2 < nf; ++f2) {
+	for (int f2 = 0; f2 < NF; ++f2) {
 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
 	}
-	conductionB[i * nf + f] = val;
+	conductionB[i * NF + f] = val;
       }
     }
   }
 
-  // ----- Special zone i = n_rad-2 (next‑to‑outermost) -----
+  // ----- Special zone i = N-2 (next‑to‑outermost) -----
   {
-    int i = n_rad - 2;
+    int i = N - 2;
     double dlogR = logR[i] - logR[i-1];
     double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
 
-    for (int f = 0; f < nf; ++f) {
-      int row = i * nf + f;
+    for (int f = 0; f < NF; ++f) {
+      int row = i * NF + f;
 
       double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - 2*logRho[f][i-1] + 2*logRho[f][i])
 	/ (8 * sqrtU[f][i-1]) / R2dlogR2;
@@ -403,18 +400,18 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 	/ (8 * sqrtU[f][i+1]) / R2dlogR2;
       double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
 
-      for (int f2 = 0; f2 < nf; ++f2) {
+      for (int f2 = 0; f2 < NF; ++f2) {
 	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
       }
 
-      set_band(row, row - nf, coefL);
+      set_band(row, row - NF, coefL);
       set_band(row, row, coefC);
-      set_band(row, row + nf, coefR);
+      set_band(row, row + NF, coefR);
 
-      for (int f2 = 0; f2 < nf; ++f2) {
+      for (int f2 = 0; f2 < NF; ++f2) {
 	if (f2 == f) continue;
-	int col = i * nf + f2;
+	int col = i * NF + f2;
 	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
 	set_band(row, col, cross);
@@ -427,20 +424,20 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 	  * ( -8 * sqrtU[f][i]
 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + 2*logRho[f][i-1] - 2*logRho[f][i])
 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - 2*logRho[f][i-1] + 2*logRho[f][i]) );
-	for (int f2 = 0; f2 < nf; ++f2) {
+	for (int f2 = 0; f2 < NF; ++f2) {
 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
 	}
-	conductionB[i * nf + f] = val;
+	conductionB[i * NF + f] = val;
       }
     }
   }
 
   // ----- Build right‑hand side (explicit diffusion) -----
   // Reorder RHS into the same i‑major, f‑minor layout.
-  // for (int f = 0; f < nf; ++f) {
+  // for (int f = 0; f < NF; ++f) {
 
-  //   // bulk i = 1 ... n_rad-3
-  //   for (int i = 1; i < n_rad - 2; ++i) {
+  //   // bulk i = 1 ... N-3
+  //   for (int i = 1; i < N - 2; ++i) {
   // 	double dlogR = logR[i] - logR[i-1];
   // 	double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
   // 	double val = U[f][i]
@@ -448,15 +445,15 @@ void ThreeFluidSim::solveConductionLAPACKE() {
   // 	  * ( -8 * sqrtU[f][i]
   // 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + logRho[f][i-1] - logRho[f][i+1])
   // 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - logRho[f][i-1] + logRho[f][i+1]) );
-  // 	for (int f2 = 0; f2 < nf; ++f2) {
+  // 	for (int f2 = 0; f2 < NF; ++f2) {
   // 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
   // 	}
-  // 	conductionB[i * nf + f] = val;
+  // 	conductionB[i * NF + f] = val;
   //   }
 
-  //   // i = n_rad-2
+  //   // i = N-2
   //   {
-  // 	int i = n_rad - 2;
+  // 	int i = N - 2;
   // 	double dlogR = logR[i] - logR[i-1];
   // 	double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
   // 	double val = U[f][i]
@@ -464,10 +461,10 @@ void ThreeFluidSim::solveConductionLAPACKE() {
   // 	  * ( -8 * sqrtU[f][i]
   // 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + 2*logRho[f][i-1] - 2*logRho[f][i])
   // 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - 2*logRho[f][i-1] + 2*logRho[f][i]) );
-  // 	for (int f2 = 0; f2 < nf; ++f2) {
+  // 	for (int f2 = 0; f2 < NF; ++f2) {
   // 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
   // 	}
-  // 	conductionB[i * nf + f] = val;
+  // 	conductionB[i * NF + f] = val;
   //   }
 
   // }
@@ -489,9 +486,9 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 
   // ---------- Unpack solution back to U[f][i] ----------
   // Solution is now in b[] with ordering: i major, f minor.
-  for (int i = 0; i < n_rad; ++i) {
-    for (int f = 0; f < nf; ++f) {
-      double val = conductionB[i * nf + f];
+  for (int i = 0; i < N; ++i) {
+    for (int f = 0; f < NF; ++f) {
+      double val = conductionB[i * NF + f];
       U[f][i] = val;
     }
   }
@@ -552,15 +549,6 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
     3 * Mtot_i * (R[f][N-1] - R[f][N-3]) * pow(R[f][N-2], 2) * Rho[f][N-2] / (pow(R[f][N-2], 3) - pow(R[f][N-3], 3));
   hydroB[last] = -4 * pow(R[f][N-2], 2) * (P[f][N-1] - P[f][N-2]) - Mtot_i * (Rho[f][N-2] + Rho[f][N-1]) * (R[f][N-1] - R[f][N-3]);
 
-  // cout << "(solveRelaxationLAPACKE) point 0 " << endl;
-
-  // {
-  //   cout << "hydroDL = " << hydroDL.transpose() << endl;
-  //   cout << "hydroD = " << hydroD.transpose() << endl;
-  //   cout << "hydroDU = " << hydroDU.transpose() << endl;
-  //   cout << "hydroB = " << hydroB.transpose() << endl;
-  // }
-    
   int info = LAPACKE_dgtsv(LAPACK_COL_MAJOR, n, nrhs,
 			   hydroDL.data(),
 			   hydroD.data(),
@@ -574,6 +562,22 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
     cout << "hydroD = " << hydroD.transpose() << endl;
     cout << "hydroDU = " << hydroDU.transpose() << endl;
     cout << "hydroB = " << hydroB.transpose() << endl;
+    exit(0);
+  }
+
+  bool R_ordered = true;
+  double R_i = R[f][0] + hydroB[0];
+  for(int i = 1; i < N; ++i){
+    double next_R_i = R[f][i] + hydroB[i];
+    if(R_i >= next_R_i){
+      R_ordered = false;
+      break;
+    }
+    R_i = next_R_i;
+  }
+
+  if(!R_ordered){
+    cout << "Relaxation: unordered R[f] after relaxation!" << endl;
     exit(0);
   }
 
