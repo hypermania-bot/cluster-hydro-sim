@@ -158,7 +158,7 @@ void tidal_bench_AB(void){
 }
 
 void binary_formation(void){
-  const std::vector times_to_save({0.0, 5.3, 5.36, 5.366});
+  const std::vector times_to_save({0.0, 5.5, 5.56, 5.567});
 
   // {
   //   ThreeFluidSim sim;
@@ -192,7 +192,7 @@ void binary_formation(void){
     sim.c2[FD] = sim.c2[FS];
   
     sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
-    sim.binary_formation = 2;
+    sim.binary_formation = 1;
 
     ApproximateTimeObserver observer1(times_to_save);
     LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});

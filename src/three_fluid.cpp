@@ -350,6 +350,7 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 
     
   // ----- Innermost boundary (i = 0) -----
+  // Enforces dU/dr = 0 boundary condition
   for (int f = 0; f < NF; ++f) {
     int row = f;                     // i=0, fluid f
     set_band(row, row, 1.0);         // diagonal
@@ -357,6 +358,9 @@ void ThreeFluidSim::solveConductionLAPACKE() {
     conductionB[row] = 0.0;
   }
   // ----- Outermost boundary (i = N-1) -----
+  // Currently simply fixes U[N-1], equivalent to an external heat source
+  // Heat loss is typically negligible due to low temperature at outer boundary
+  // Should be changed to a L=0 boundary condition
   for (int f = 0; f < NF; ++f) {
     int row = (N - 1) * NF + f;
     set_band(row, row, 1.0);
@@ -696,7 +700,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 1e-8 * 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       dM_dt += ms * (dn_dt_tc + dn_dt_3b) * vol;
@@ -715,7 +719,8 @@ void ThreeFluidSim::applyBinaryFormation() {
       P[f].array() = (2.0 / 3.0) * (Rho[f].array() * U[f].array());
     }
     
-    std::cout << "M_FS_ratio, M_FB_ratio = " << M_FS_ratio << "," << M_FB_ratio << std::endl;
+    std::cout << "M_FS_ratio, M_FB_ratio, Menc[FS], Menc[FB] = "
+	      << M_FS_ratio << "," << M_FB_ratio << "," << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
   } else if(binary_formation == 2) {
     // Transfer by each Lagrangian zone
     // To preserve energy conservation at each binary formation step, we require
@@ -738,7 +743,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 1e-8 * 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 1e-9 * 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       // double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       double dRho = mb * (dn_dt_tc + dn_dt_3b) * Deltat;

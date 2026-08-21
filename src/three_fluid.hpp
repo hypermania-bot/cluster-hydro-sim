@@ -176,6 +176,9 @@ public:
       }
 
       if(tidal_cutoff) { applyTidalCutoff(); }
+      // Binary formation changes Rho and Menc, but preserves U, updates P = (2/3) * Rho * U
+      if(binary_formation) { applyBinaryFormation(); }
+
       
       for(int f = 0; f < NF; ++f) {
 	solveRelaxationLAPACKE(f);
@@ -194,12 +197,9 @@ public:
 	cout << "NaNs in U[]!" << endl;
 	exit(0);
       }
-
-      // Binary formation should preserve:
-      // R[FS] == R[FB] == R[FD]
-      // P = (2.0/3.0) * Rho * U
-      // Hydrostatic equil
-      if(binary_formation) { applyBinaryFormation(); }
+      // cout << "R[FS] = " << R[FS].transpose() << endl;
+      // cout << "Rho[FS] = " << Rho[FS].transpose() << endl;
+      // cout << "U[FS] = " << U[FS].transpose() << endl;
       
       totalTime += Deltat;      
       Deltat = Deltat * thres / maxChange;
