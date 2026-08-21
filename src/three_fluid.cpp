@@ -51,11 +51,10 @@ void ThreeFluidSim::initSolver(const int N) {
 
   // Init relaxation solver
   {
-    const int n = N;
-    hydroDL = VectorXd::Zero(n-1);
-    hydroD = VectorXd::Zero(n);
-    hydroDU = VectorXd::Zero(n-1);
-    hydroB = VectorXd::Zero(n);
+    hydroDL = VectorXd::Zero(N-1);
+    hydroD = VectorXd::Zero(N);
+    hydroDU = VectorXd::Zero(N-1);
+    hydroB = VectorXd::Zero(N);
   }
 
   // Init realign
@@ -489,7 +488,6 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 //    WE USE THIS CODE
 // ----------------------------------------------------------------
 void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
-  const int n = N;
   const int nrhs = 1;
   const int ldb = N;
 
@@ -504,7 +502,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
   hydroB[0] = -4 * pow(R[f][0], 2) * (P[f][1] - P[f][0]) - Mtot_i * (Rho[f][0] + Rho[f][1]) * R[f][1];
 
   // Bulk zones
-  for (int i = 1; i < n - 1; ++i) {
+  for (int i = 1; i < N - 1; ++i) {
     Mtot_i = Menc[FS][i] + Menc[FB][i] + Menc[FD][i];
     hydroDL[i-1] = -Mtot_i * (Rho[f][i] + Rho[f][i+1]) -
       20 * pow(R[f][i], 2) * P[f][i] * pow(R[f][i-1], 2) / (pow(R[f][i], 3) - pow(R[f][i-1], 3)) +
@@ -524,7 +522,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
   // -P[N-1] / (R[N-1] - R[N-2])
   //   + Mtot[N-1] * Rho[N-1] / R[N-1]^2 = 0.
   // The Jacobian preserves the outer shell's mass and specific entropy.
-  const int last = n - 1;
+  const int last = N - 1;
   const double inner_radius = R[f][last-1];
   const double outer_radius = R[f][last];
   const double outer_density = Rho[f][last];
@@ -546,7 +544,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
   hydroB[last] = outer_pressure / outer_width
     - outer_mass * outer_density / pow(outer_radius, 2);
 
-  int info = LAPACKE_dgtsv(LAPACK_COL_MAJOR, n, nrhs,
+  int info = LAPACKE_dgtsv(LAPACK_COL_MAJOR, N, nrhs,
 			   hydroDL.data(),
 			   hydroD.data(),
 			   hydroDU.data(),
@@ -585,7 +583,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
     P[f][0] = s_i * pow(Rho[f][0], 5.0/3.0);
     
     U[f][0] = 1.5 * P[f][0] / Rho[f][0];
-    for (int i = 1; i < n; ++i) {
+    for (int i = 1; i < N; ++i) {
       s_i = P[f][i] / pow(Rho[f][i], 5.0/3.0);
       Rho[f][i] = Rho[f][i] * (pow(R[f][i], 3) - pow(R[f][i-1], 3)) / (pow(R[f][i] + hydroB[i], 3) - pow(R[f][i-1] + hydroB[i-1], 3));
       P[f][i] = s_i * pow(Rho[f][i], 5.0/3.0);
