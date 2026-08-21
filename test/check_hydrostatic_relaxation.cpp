@@ -196,6 +196,110 @@ bool check_grid(const int zones) {
   return passed;
 }
 
+bool check_production_initializer(const bool yiming) {
+  ThreeFluidSim sim;
+  const int requested_zones = yiming ? 150 : 80;
+  sim.initSolver(requested_zones);
+  sim.initCoeffsYiming();
+  if (yiming) {
+    sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
+  } else {
+    sim.initPlummer(0.5, 1e-10, 1.0, 1.0, 1.0);
+  }
+
+  const auto initial_radius = sim.R;
+  const auto initial_density = sim.Rho;
+  const auto initial_pressure = sim.P;
+  const auto initial_energy = sim.U;
+  double initial_residual = 0.0;
+  bool active_outer_shell = true;
+  for (int f = 0; f < NF; ++f) {
+    initial_residual = std::max(initial_residual,
+                                hydrostatic_residual(sim, f));
+    active_outer_shell = active_outer_shell
+      && finite_bits(sim.Rho[f][sim.N-1])
+      && finite_bits(sim.P[f][sim.N-1])
+      && finite_bits(sim.U[f][sim.N-1])
+      && sim.Rho[f][sim.N-1] > 0.0
+      && sim.P[f][sim.N-1] > 0.0
+      && sim.U[f][sim.N-1] > 0.0;
+  }
+
+  for (int f = 0; f < NF; ++f) {
+    sim.solveRelaxationLAPACKE(f);
+    sim.solveRelaxationLAPACKE(f);
+  }
+  sim.updateEnclosedMass();
+
+  double relaxed_residual = 0.0;
+  double maximum_relaxation_change = 0.0;
+  for (int f = 0; f < NF; ++f) {
+    relaxed_residual = std::max(relaxed_residual,
+                                hydrostatic_residual(sim, f));
+    for (int i = 0; i < sim.N; ++i) {
+      maximum_relaxation_change = std::max({
+        maximum_relaxation_change,
+        relative_difference(sim.R[f][i], initial_radius[f][i]),
+        relative_difference(sim.Rho[f][i], initial_density[f][i]),
+        relative_difference(sim.P[f][i], initial_pressure[f][i]),
+        relative_difference(sim.U[f][i], initial_energy[f][i])});
+    }
+  }
+
+  const std::array<double, NF> mass_before_realign{
+    sim.Menc[FS][sim.N-1], sim.Menc[FB][sim.N-1],
+    sim.Menc[FD][sim.N-1]};
+  sim.realign();
+  double realigned_residual = 0.0;
+  double maximum_realign_mass_error = 0.0;
+  for (int f = 0; f < NF; ++f) {
+    realigned_residual = std::max(realigned_residual,
+                                  hydrostatic_residual(sim, f));
+    maximum_realign_mass_error = std::max(
+      maximum_realign_mass_error,
+      relative_difference(sim.Menc[f][sim.N-1], mass_before_realign[f]));
+    active_outer_shell = active_outer_shell
+      && sim.Rho[f][sim.N-1] > 0.0 && sim.P[f][sim.N-1] > 0.0
+      && sim.U[f][sim.N-1] > 0.0;
+  }
+
+  const std::array<double, NF> outer_energy_before{
+    sim.U[FS][sim.N-1], sim.U[FB][sim.N-1], sim.U[FD][sim.N-1]};
+  sim.solveConductionLAPACKE();
+  double maximum_outer_conduction_change = 0.0;
+  bool finite_after_conduction = true;
+  for (int f = 0; f < NF; ++f) {
+    maximum_outer_conduction_change = std::max(
+      maximum_outer_conduction_change,
+      relative_difference(sim.U[f][sim.N-1], outer_energy_before[f]));
+    finite_after_conduction = finite_after_conduction
+      && sim.U[f].array().isFinite().all()
+      && sim.P[f].array().isFinite().all();
+  }
+
+  const bool passed = active_outer_shell && finite_after_conduction
+    && initial_residual < residual_tolerance
+    && relaxed_residual < residual_tolerance
+    && realigned_residual < residual_tolerance
+    && maximum_relaxation_change < modification_tolerance
+    && maximum_realign_mass_error < invariant_tolerance
+    && maximum_outer_conduction_change < invariant_tolerance;
+
+  std::cout << "initializer=" << (yiming ? "Yiming" : "Plummer")
+            << " zones=" << sim.N
+            << " initial_residual=" << initial_residual
+            << " relaxed_residual=" << relaxed_residual
+            << " realigned_residual=" << realigned_residual
+            << " max_relaxation_change=" << maximum_relaxation_change
+            << " max_realign_mass_error=" << maximum_realign_mass_error
+            << " max_outer_conduction_change="
+            << maximum_outer_conduction_change
+            << " active_outer_shell=" << active_outer_shell
+            << " finite_after_conduction=" << finite_after_conduction
+            << " passed=" << passed << '\n';
+  return passed;
+}
+
 }  // namespace
 
 int main() {
@@ -207,6 +311,8 @@ int main() {
   for (const int zones : {32, 80, 150}) {
     passed = check_grid(zones) && passed;
   }
+  passed = check_production_initializer(false) && passed;
+  passed = check_production_initializer(true) && passed;
   std::cout << "hydrostatic_relaxation_check_passed=" << passed << '\n';
   return passed ? 0 : 1;
 }

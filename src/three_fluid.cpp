@@ -33,10 +33,10 @@ void ThreeFluidSim::initSolver(const int N) {
     Menc[f].resize(N);
     P[f].resize(N);
     sqrtU[f].resize(N);
-    logRho[f].resize(N-1);
+    logRho[f].resize(N);
   }
   
-  logR = VectorXd::Zero(N-1);
+  logR = VectorXd::Zero(N);
 
   // Init conduction solver
   {
@@ -235,6 +235,25 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
   }
 
   updateEnclosedMass();
+
+  // Reconstruct pressure after truncation so that zone N-1 is an active
+  // finite-mass shell satisfying the same one-sided equation as relaxation.
+  for(int f = 0; f < NF; ++f) {
+    const double outer_width = R[f][N-1] - R[f][N-2];
+    const double outer_mass = Menc[FS][N-1] + Menc[FB][N-1] + Menc[FD][N-1];
+    P[f][N-1] = outer_mass * Rho[f][N-1] * outer_width / pow(R[f][N-1], 2);
+  }
+  for(int i = N-2; i >= 0; --i) {
+    for(int f = 0; f < NF; ++f) {
+      const double radial_span = (i == 0) ? R[f][1] : R[f][i+1] - R[f][i-1];
+      const double enclosed_mass = Menc[FS][i] + Menc[FB][i] + Menc[FD][i];
+      P[f][i] = P[f][i+1] + enclosed_mass * (Rho[f][i] + Rho[f][i+1])
+        * radial_span / (4.0 * pow(R[f][i], 2));
+    }
+  }
+  for(int f = 0; f < NF; ++f) {
+    U[f].array() = 1.5 * P[f].array() / Rho[f].array();
+  }
 }
   
 void ThreeFluidSim::initPlummer(const double rho0, const double xi1, const double xi2, const double zeta1, const double zeta2) {
@@ -258,19 +277,29 @@ void ThreeFluidSim::initPlummer(const double rho0, const double xi1, const doubl
     // P[FB][i] = (2.0 / 3.0) * U[FB][i] * Rho[FB][i];
     // P[FD][i] = (2.0 / 3.0) * U[FD][i] * Rho[FD][i];
   }
-  Rho[FS][N-1] = Rho[FB][N-1] = Rho[FD][N-1] = 0.0;
-
   // cout << "Initiated profile to:" << endl;
   // cout << "Rho[FS] = " << Rho[FS].transpose() << endl;
   // cout << "U[FS] = " << U[FS].transpose() << endl;
   // cout << "P[FS] = " << P[FS].transpose() << endl;
   // cout << endl;
 
-  for(int f = 0; f < NF; ++f){
-    // U[f].array() = 1.5 * P[f].array() / Rho[f].array();
-    P[f].array() = (2.0 / 3.0) * U[f].array() * Rho[f].array();
-  }
   updateEnclosedMass();
+  for(int f = 0; f < NF; ++f) {
+    const double outer_width = R[f][N-1] - R[f][N-2];
+    const double outer_mass = Menc[FS][N-1] + Menc[FB][N-1] + Menc[FD][N-1];
+    P[f][N-1] = outer_mass * Rho[f][N-1] * outer_width / pow(R[f][N-1], 2);
+  }
+  for(int i = N-2; i >= 0; --i) {
+    for(int f = 0; f < NF; ++f) {
+      const double radial_span = (i == 0) ? R[f][1] : R[f][i+1] - R[f][i-1];
+      const double enclosed_mass = Menc[FS][i] + Menc[FB][i] + Menc[FD][i];
+      P[f][i] = P[f][i+1] + enclosed_mass * (Rho[f][i] + Rho[f][i+1])
+        * radial_span / (4.0 * pow(R[f][i], 2));
+    }
+  }
+  for(int f = 0; f < NF; ++f) {
+    U[f].array() = 1.5 * P[f].array() / Rho[f].array();
+  }
 }
 
 void ThreeFluidSim::updateEnclosedMass() {
@@ -298,9 +327,9 @@ void ThreeFluidSim::solveConductionLAPACKE() {
     
   for (int f = 0; f < NF; ++f) {
     sqrtU[f] = U[f].array().sqrt().matrix();
-    logRho[f] = Rho[f].head(N - 1).array().log().matrix();
+    logRho[f] = Rho[f].array().log().matrix();
   }
-  logR = R[FS].head(N - 1).array().log().matrix();
+  logR = R[FS].array().log().matrix();
 
   // ---------- Build the banded matrix and RHS ----------
   fill(conductionAB.begin(), conductionAB.end(), 0.0);
@@ -337,8 +366,8 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 
   double mi[3] = {ms, mb, md};   // masses (FS, FB, FD)
 
-  // ----- Bulk zones: i = 1 ... N-3 -----
-  for (int i = 1; i < N - 2; ++i) {
+  // ----- Bulk zones: i = 1 ... N-2 -----
+  for (int i = 1; i < N - 1; ++i) {
     double dlogR = logR[i] - logR[i-1];
     double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
 
@@ -377,53 +406,6 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 	  * ( -8 * sqrtU[f][i]
 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + logRho[f][i-1] - logRho[f][i+1])
 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - logRho[f][i-1] + logRho[f][i+1]) );
-	for (int f2 = 0; f2 < NF; ++f2) {
-	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
-	}
-	conductionB[i * NF + f] = val;
-      }
-    }
-  }
-
-  // ----- Special zone i = N-2 (next‑to‑outermost) -----
-  {
-    int i = N - 2;
-    double dlogR = logR[i] - logR[i-1];
-    double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
-
-    for (int f = 0; f < NF; ++f) {
-      int row = i * NF + f;
-
-      double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - 2*logRho[f][i-1] + 2*logRho[f][i])
-	/ (8 * sqrtU[f][i-1]) / R2dlogR2;
-      double coefR = c2[f] * Deltat * (2*logR[i-1] - 2*logR[i] - 4 + 2*logRho[f][i-1] - 2*logRho[f][i])
-	/ (8 * sqrtU[f][i+1]) / R2dlogR2;
-      double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
-
-      for (int f2 = 0; f2 < NF; ++f2) {
-	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
-	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
-      }
-
-      set_band(row, row - NF, coefL);
-      set_band(row, row, coefC);
-      set_band(row, row + NF, coefR);
-
-      for (int f2 = 0; f2 < NF; ++f2) {
-	if (f2 == f) continue;
-	int col = i * NF + f2;
-	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
-	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
-	set_band(row, col, cross);
-      }
-
-      {
-	// Set RHS
-	double val = U[f][i]
-	  + (c2[f] * Deltat) / (8.0 * R2dlogR2)
-	  * ( -8 * sqrtU[f][i]
-	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + 2*logRho[f][i-1] - 2*logRho[f][i])
-	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - 2*logRho[f][i-1] + 2*logRho[f][i]) );
 	for (int f2 = 0; f2 < NF; ++f2) {
 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
 	}
@@ -644,25 +626,24 @@ void ThreeFluidSim::realign() {
     
   for (int f = 0; f < NF; ++f) {
     // Align density (log-log interp)
-    for (int i = 0; i < N-1; ++i) {
+    for (int i = 0; i < N; ++i) {
       auto it = lower_bound(R[f].begin(), R[f].end(), newR[i]);
       int idx = it - R[f].begin();
       if(idx == 0) {
 	// Assuming dRho/dr = 0 in first Lagrangian zone
 	newRho[i] = Rho[f][0]; 
-      } else if(idx < N-1) {
+      } else if(idx < N) {
 	// Logarithmic interpolation between R[f][idx-1] and R[f][idx]
 	double t = (log(newR[i]) - log(R[f][idx-1])) / (log(R[f][idx]) - log(R[f][idx-1]));
 	newRho[i] = exp(log(Rho[f][idx-1]) * (1-t) + log(Rho[f][idx]) * t);
 	// cout << "f,i,idx,newR,t,newRho,Rho = " << f << "," << i << "," << idx << "," << newR[i] << "," << t << "," << newRho[i] << "," << Rho[f][i] << endl;
       } else {
-	// idx could be N or N-1, interpolate for N-1
-	double t = (log(newR[i]) - log(R[f][N-3])) / (log(R[f][N-2]) - log(R[f][N-3]));
-	newRho[i] = exp(log(Rho[f][N-3]) * (1-t) + log(Rho[f][N-2]) * t);
+	// Extrapolate from the two outermost active shells.
+	double t = (log(newR[i]) - log(R[f][N-2])) / (log(R[f][N-1]) - log(R[f][N-2]));
+	newRho[i] = exp(log(Rho[f][N-2]) * (1-t) + log(Rho[f][N-1]) * t);
 	// cout << "f,i,idx,newR,t,newRho,Rho = " << f << "," << i << "," << idx << "," << newR[i] << "," << t << "," << newRho[i] << "," << Rho[f][i] << endl;
       }
     }
-    newRho[N-1] = 0.0;
     Rho[f] = newRho;
       
     // Recompute Menc
@@ -680,8 +661,9 @@ void ThreeFluidSim::realign() {
 
   // Recompute U from hydrostatic (AlignU style)
   for (int f = 0; f < NF; ++f) {
-    //double pShell = 0.0;
-    P[f][N-1] = 0.0;
+    const double outer_width = newR[N-1] - newR[N-2];
+    const double outer_mass = Menc[FS][N-1] + Menc[FB][N-1] + Menc[FD][N-1];
+    P[f][N-1] = outer_mass * Rho[f][N-1] * outer_width / pow(newR[N-1], 2);
     for (int i = N-2; i >= 1; --i) {
       //double avgRho = (Rho[f][i] + Rho[f][i+1]) / 2.0;
       P[f][i] = P[f][i+1] + (Menc[FS][i] + Menc[FB][i] + Menc[FD][i]) * (Rho[f][i] + Rho[f][i+1]) * (newR[i+1] - newR[i-1]) / (4.0 * pow(newR[i], 2));
@@ -690,7 +672,6 @@ void ThreeFluidSim::realign() {
     P[f][0] = P[f][1] + (Menc[FS][0] + Menc[FB][0] + Menc[FD][0]) * (Rho[f][0] + Rho[f][1]) * newR[1] / (4.0 * pow(newR[0], 2));
 
     U[f] = 1.5 * (P[f].array() / Rho[f].array()).matrix();
-    U[f][N-1] = U[f][N-2];
   }
 }
 
@@ -747,7 +728,7 @@ void ThreeFluidSim::applyBinaryFormation() {
     // The first equation fixes total heat energy at each Lagrangian zone.
     // The second equation states that binary formation doesn't change the internal energy of the single star specie.
     
-    for(int i = 0; i < N-1; ++i){
+    for(int i = 0; i < N; ++i){
       const double MtotSys = 1e9;
       const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
 
@@ -788,7 +769,7 @@ void ThreeFluidSim::applyTidalCutoff() {
     // if(tidal_radius < R[f][0]) {
     //   Rho[f][0] *= pow(tidal_radius / R[f][0], 3);
     // }
-    for(int i = 1; i < N-1; ++i) {
+    for(int i = 1; i < N; ++i) {
       // This doesn't work because of numerical instability
       // if(tidal_radius < R[f][i-1]) {
       // 	Rho[f][i] = 1e-10;
@@ -808,8 +789,6 @@ void ThreeFluidSim::applyTidalCutoff() {
 	Rho[f][i] *= 1.0 - (1.0 - t) * factor * Deltat;
       }
     }
-    Rho[f][N-1] = 0.0;
-     
     P[f].array() = (2.0 / 3.0) * U[f].array() * Rho[f].array();
   }
   updateEnclosedMass();
