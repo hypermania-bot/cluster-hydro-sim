@@ -51,7 +51,7 @@ void ThreeFluidSim::initSolver(const int N) {
 
   // Init relaxation solver
   {
-    const int n = N - 1;
+    const int n = N;
     hydroDL = VectorXd::Zero(n-1);
     hydroD = VectorXd::Zero(n);
     hydroDU = VectorXd::Zero(n-1);
@@ -507,9 +507,9 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 //    WE USE THIS CODE
 // ----------------------------------------------------------------
 void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
-  const int n = N - 1;
+  const int n = N;
   const int nrhs = 1;
-  const int ldb = N - 1;
+  const int ldb = N;
 
   // Innermost (i=0)
   double Mtot_i = Menc[FS][0] + Menc[FB][0] + Menc[FD][0];
@@ -538,16 +538,31 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
     hydroB[i] = -4 * pow(R[f][i], 2) * (P[f][i+1] - P[f][i]) - Mtot_i * (Rho[f][i] + Rho[f][i+1]) * (R[f][i+1] - R[f][i-1]);
   }
 
-  // Next-to-outermost
-  int last = n - 1;
-  Mtot_i = Menc[FS][N-2] + Menc[FB][N-2] + Menc[FD][N-2];
-  hydroDL[last-1] = -Mtot_i * (Rho[f][N-2] + Rho[f][N-1]) -
-    20 * pow(R[f][N-2], 2) * P[f][N-2] * pow(R[f][N-3], 2) / (pow(R[f][N-2], 3) - pow(R[f][N-3], 3)) +
-    3 * Mtot_i * (R[f][N-1] - R[f][N-3]) * Rho[f][N-2] * pow(R[f][N-3], 2) / (pow(R[f][N-2], 3) - pow(R[f][N-3], 3));
-  hydroD[last] = 8 * R[f][N-2] * (P[f][N-1] - P[f][N-2]) +
-    20 * pow(R[f][N-2], 4) * P[f][N-2] / (pow(R[f][N-2], 3) - pow(R[f][N-3], 3)) -
-    3 * Mtot_i * (R[f][N-1] - R[f][N-3]) * pow(R[f][N-2], 2) * Rho[f][N-2] / (pow(R[f][N-2], 3) - pow(R[f][N-3], 3));
-  hydroB[last] = -4 * pow(R[f][N-2], 2) * (P[f][N-1] - P[f][N-2]) - Mtot_i * (Rho[f][N-2] + Rho[f][N-1]) * (R[f][N-1] - R[f][N-3]);
+  // Outermost one-sided equation:
+  // -P[N-1] / (R[N-1] - R[N-2])
+  //   + Mtot[N-1] * Rho[N-1] / R[N-1]^2 = 0.
+  // The Jacobian preserves the outer shell's mass and specific entropy.
+  const int last = n - 1;
+  const double inner_radius = R[f][last-1];
+  const double outer_radius = R[f][last];
+  const double outer_density = Rho[f][last];
+  const double outer_pressure = P[f][last];
+  const double outer_mass = Menc[FS][last] + Menc[FB][last] + Menc[FD][last];
+  const double outer_volume = pow(outer_radius, 3) - pow(inner_radius, 3);
+  const double outer_width = outer_radius - inner_radius;
+
+  hydroDL[last-1] =
+    -5 * outer_pressure * pow(inner_radius, 2) / (outer_volume * outer_width)
+    - outer_pressure / pow(outer_width, 2)
+    + 3 * outer_mass * outer_density * pow(inner_radius, 2)
+      / (outer_volume * pow(outer_radius, 2));
+  hydroD[last] =
+    5 * outer_pressure * pow(outer_radius, 2) / (outer_volume * outer_width)
+    + outer_pressure / pow(outer_width, 2)
+    - 3 * outer_mass * outer_density / outer_volume
+    - 2 * outer_mass * outer_density / pow(outer_radius, 3);
+  hydroB[last] = outer_pressure / outer_width
+    - outer_mass * outer_density / pow(outer_radius, 2);
 
   int info = LAPACKE_dgtsv(LAPACK_COL_MAJOR, n, nrhs,
 			   hydroDL.data(),
@@ -594,11 +609,6 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
       P[f][i] = s_i * pow(Rho[f][i], 5.0/3.0);
       U[f][i] = 1.5 * P[f][i] / Rho[f][i];
     }
-    U[f][N-1] = U[f][N-2];
-    Rho[f][N-1] = 0;
-    P[f][N-1] = 0;
-    // P[f][N-1] = (2.0 / 3.0) * Rho[f][N-1] * U[f][N-1];
-
   }
 
   // Version that use linear approximation
@@ -619,7 +629,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
   //   U[f][N-1] = U[f][N-2];
   // }
 
-  R[f].head(n) += hydroB;
+  R[f] += hydroB;
 }
   
 // ----------------------------------------------------------------
@@ -825,4 +835,3 @@ void ThreeFluidSim::saveParams(const std::string &dir) const {
 
   save_param_for_Mathematica(param, dir);
 }
-
