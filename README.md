@@ -15,8 +15,9 @@ terms.
 
 The current executable is a research prototype rather than a general-purpose
 simulation package. In particular, experiment selection and parameters are
-set in `src/main.cpp`, and there is not yet an automated test suite or command
-line interface.
+set in `src/main.cpp`, and there is not yet a command line interface or a
+general regression suite. A standalone check covers the hydrostatic
+projection and its active outer-shell convention.
 
 ## Numerical method
 
@@ -40,18 +41,25 @@ One evolution step consists of:
 
 1. A semi-implicit conduction and inter-fluid energy-exchange solve. The
    resulting block-banded system is solved with `LAPACKE_dgbsv`.
-2. Optional binary formation and tidal mass removal.
+2. Optional tidal mass removal.
 3. Two linearized hydrostatic-relaxation solves per component, using
    `LAPACKE_dgtsv` while preserving shell mass and specific entropy within
-   each relaxation solve.
+   each relaxation solve. The solve includes the finite-mass outer shell and
+   imposes the one-sided equation
+   `-P[N-1]/(R[N-1]-R[N-2]) + M[N-1] Rho[N-1]/R[N-1]^2 = 0`.
 4. Logarithmic-grid realignment, followed by reconstruction of enclosed mass
    and hydrostatic pressure.
+5. Optional binary formation. This experimental operator is currently applied
+   after projection and can leave the accepted state outside separate
+   component hydrostatic equilibrium.
 
 The center uses a regularity boundary condition, `U[f][0] = U[f][1]`, and the
-outer value of `U` is held fixed during the conduction solve. The timestep
-starts at `1e-3` and is adjusted using a target maximum relative change in
-`U` of `1e-3`. Evolution ends when a component's central density exceeds
-`1e12` or the configured step limit is reached.
+outer value of `U` is held fixed during the conduction solve. Entry `N-1` is
+an active shell with positive density and pressure; the adjacent conduction
+stencil uses its density, while the fixed outer-`U` row acts as a prescribed
+thermal boundary. The timestep starts at `1e-3` and is adjusted using a target
+maximum relative change in `U` of `1e-3`. Evolution ends when a component's
+central density exceeds `1e12` or the configured step limit is reached.
 
 The implementation and notation follow:
 
@@ -116,6 +124,17 @@ instructions, OpenMP, `-ffast-math`, and `NDEBUG`, so its executable is not
 portable across all CPU architectures and does not retain Eigen's debug
 assertions.
 
+Run the strict-IEEE standalone hydrostatic check with
+
+```bash
+make check
+```
+
+The check constructs discrete equilibria at several resolutions and verifies
+that projection changes them only at roundoff level. It also exercises both
+production initializers, identical-grid realignment, the positive outer-shell
+state, and the fixed outer conduction value.
+
 ## Run
 
 Run from the repository root so the relative output paths resolve correctly:
@@ -124,28 +143,14 @@ Run from the repository root so the relative output paths resolve correctly:
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./main
 ```
 
-The active entry point runs two one-fluid tidal comparison cases:
-
-| Output directory | Tidal removal | Tidal radius | Removal factor |
-| --- | ---: | ---: | ---: |
-| `output/one_fluid_without_tidal/` | off | -- | -- |
-| `output/one_fluid_with_tidal/` | on | `10` | `50` |
-
-Both cases use 150 zones, `m_d = m_s`, and initial central-density ratios
-`rho_s:rho_b:rho_d = 1:1e-10:1e-10`. The dark-matter conduction coefficient
-is set equal to the single-star coefficient so that the negligible binary and
-dark-matter populations leave an effectively one-fluid calculation. The
-tidal case applies the explicit density sink outside `r = 10`; the no-tidal
-case additionally records the central density and specific energy at every
-step. Binary conduction, binary heating, and binary formation remain
-disabled. Other experiment functions are present in `src/main.cpp` but are
-not selected by a runtime option.
-
-On an Ubuntu 22 system with GCC 11, the current default build completed both
-cases in approximately 15 seconds. The no-tidal case stopped at `t = 5.56517`
-after 15,795 steps, and the tidal case stopped at `t = 5.53821` after 40,135
-steps. These values are reference observations, not regression-test
-tolerances, and may vary with the compiler and target architecture.
+Experiment selection is currently made by editing the calls at the bottom of
+`src/main.cpp`; there is no runtime selector. The file defines one-fluid split,
+single-fluid tidal, two-component tidal, and binary-formation experiments.
+The checked-in entry point currently selects `binary_formation()`. That source
+operator remains experimental and is not covered by the active-outer-shell
+complete-run assessment. The non-formation functions provide the stable
+baseline examples used to validate conduction, projection, realignment, and
+tidal removal.
 
 `make clean` removes the executable and object files. It deliberately leaves
 simulation output in place.
@@ -211,9 +216,10 @@ include:
 
 - the log-density interpolation used during realignment is not
   mass-conservative;
-- there are no automated unit, regression, or grid-convergence tests;
-- binary formation still contains an unresolved dimensionless-conversion
-  note and is disabled in the active setup;
+- the standalone hydrostatic check does not yet cover mass conservation,
+  energy conservation, complete-run regression, or grid convergence;
+- binary formation still contains an unresolved dimensionless-conversion note
+  and is not covered by the standalone or complete-run checks;
 - the tidal prescription is a phenomenological explicit density sink rather
   than an external gravitational potential; and
 - output writes do not currently report short writes or file-open failures.

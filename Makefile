@@ -39,18 +39,36 @@ CXXFLAGS += -O3 -ffast-math
 #CXXFLAGS += -g -fno-omit-frame-pointer -fext-numeric-literals
 CXXFLAGS += -DNDEBUG
 
+# The standalone relaxation check deliberately excludes -ffast-math so that
+# its finiteness and fixed-point checks retain standard IEEE semantics.
+check_CXXFLAGS = $(filter-out -ffast-math,$(CXXFLAGS))
+check_NAME := check_hydrostatic_relaxation
+check_OBJS := test/check_hydrostatic_relaxation.o test/three_fluid.o
+
 
 # Add linker flags
 LDFLAGS += $(foreach librarydir,$(program_LIBRARY_DIRS),-L$(librarydir)) 
 LDLIBS += $(foreach library,$(program_LIBRARIES),-l$(library))
 
 
-.PHONY: all clean distclean
+.PHONY: all check clean distclean
 
 all: $(program_NAME)
 
 $(program_NAME): $(program_OBJS)
 	$(LINK.cc) $(program_OBJS) -o $(program_NAME) $(LDLIBS)
+
+check: $(check_NAME)
+	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./$(check_NAME)
+
+$(check_NAME): $(check_OBJS)
+	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $(check_OBJS) -o $@ $(LDLIBS)
+
+test/check_hydrostatic_relaxation.o: test/check_hydrostatic_relaxation.cpp $(program_H_SRCS) $(program_HPP_SRCS)
+	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
+
+test/three_fluid.o: src/three_fluid.cpp $(program_H_SRCS) $(program_HPP_SRCS)
+	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
 
 $(program_OBJS): $(program_H_SRCS) $(program_HPP_SRCS) $(program_CUH_SRCS) $(program_GEN_SRCS)
 
@@ -65,6 +83,8 @@ asm: $(program_CXX_ASMS)
 clean:
 	$(RM) $(program_NAME)
 	$(RM) $(program_OBJS)
+	$(RM) $(check_NAME)
+	$(RM) $(check_OBJS)
 	$(RM) $(program_CXX_ASMS)
 	$(RM) $(wildcard *~)
 	$(RM) -r html latex
