@@ -160,39 +160,37 @@ void tidal_bench_AB(void){
 void binary_formation(void){
   const std::vector times_to_save({0.0, 5.5, 5.56, 5.567});
 
-  // {
-  //   ThreeFluidSim sim;
-  //   sim.initSolver(150);
-  //   sim.initCoeffsYiming();
-
-  //   // Manually make DM the same as single star
-  //   sim.md = sim.ms;
-  //   sim.c2[FD] = sim.c2[FS];
-
-  //   sim.initPlummerYiming(1.0, 1e-10, 1e-10, 1.0, 1.0);
-
-  //   ApproximateTimeObserver observer1(times_to_save);
-  //   LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-  //   ObserverPack observer(observer1, observer2);
+  {
+    ThreeFluidSim sim;
+    sim.initSolver(150);
+    sim.initPlummer(1.0, 1e-10, 1e-10, 1.0, 1.0);
+    const double Mtot = sim.Menc[FS][sim.N-1] + sim.Menc[FB][sim.N-1] + sim.Menc[FD][sim.N-1];
+    sim.ms = Mtot / 1e6; // Assuming cluster mass = 10^6 ms
+    sim.mb = 2.0 * sim.ms;
+    sim.md = 1e-10 * sim.ms;
+    sim.initCoeffs(1e6, 2.0, 1e-10);
     
-  //   std::string dir = "output/one_fluid_Yiming_test/";
-  //   prepare_directory_for_output(dir);
-  //   sim.saveParams(dir);
-  //   sim.evolve(50000000, observer);
-  //   observer.save(dir);
-  // }
+    ApproximateTimeObserver observer1(times_to_save);
+    LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
+    ObserverPack observer(observer1, observer2);
+    
+    std::string dir = "output/one_fluid_baseline/";
+    prepare_directory_for_output(dir);
+    sim.saveParams(dir);
+    sim.evolve(50000000, observer);
+    observer.save(dir);
+  }
 
   {
     ThreeFluidSim sim;
     sim.initSolver(150);
-    sim.initCoeffsYiming();
-
-    // Manually make DM the same as single star
-    sim.md = sim.ms;
-    sim.c2[FD] = sim.c2[FS];
-  
-    sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
-    sim.binary_formation = 1;
+    sim.initPlummer(1.0, 1e-10, 1e-10, 1.0, 1.0);
+    const double Mtot = sim.Menc[FS][sim.N-1] + sim.Menc[FB][sim.N-1] + sim.Menc[FD][sim.N-1];
+    sim.ms = Mtot / 1e6; // Assuming cluster mass = 10^6 ms
+    sim.mb = 2.0 * sim.ms;
+    sim.md = 1e-10 * sim.ms;
+    sim.initCoeffs(1e6, 2.0, 1e-10);
+    sim.binary_formation = BINARY_FORMATION_MODE_2;
 
     ApproximateTimeObserver observer1(times_to_save);
     LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
@@ -200,10 +198,10 @@ void binary_formation(void){
     // ObserverPack observer(observer1, observer2, observer3);    
     ObserverPack observer(observer1, observer2);
     
-    std::string dir = "output/one_fluid_binary_formation_Yiming/";
+    std::string dir = "output/one_fluid_binary_formation/";
     prepare_directory_for_output(dir);
     sim.saveParams(dir);
-    sim.evolve(50000000, observer);
+    sim.evolve(1000000, observer);
     observer.save(dir);
   }
 

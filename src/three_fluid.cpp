@@ -62,21 +62,30 @@ void ThreeFluidSim::initSolver(const int N) {
   newRho = VectorXd::Zero(N);
 }
 
+// Initialize coefficients relevant for evolution based on mass ratios
+void ThreeFluidSim::initCoeffs(const double Mtot_over_ms, const double mb_over_ms, const double md_over_ms) {
+  // Initialize the following coefficients:
+  // std::array<double, NF> c2; // Conduction
+  // std::array<double, NF*NF> c1; // Dynamical heating
+  // std::array<double, NF*NF> c4;  // Binary heating
 
-void ThreeFluidSim::initCoeffs() {
-  // c' coefficients (exact from your notes eqs 51-57)
+  
   constexpr double beta[NF] = {1.0, 1.0, 1.0};
-  constexpr double MtotSys = 1e9;
-  double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
-  double mi[NF] = {ms, mb, md};
+  // double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
+  double lnLsd = log(GAMMA_LAMBDA * 2 * Mtot_over_ms / (1.0 + md_over_ms));
+  // double mi[NF] = {ms, mb, md};
+  double mi_over_ms[NF] = {1.0, mb_over_ms, md_over_ms};
   for (int i = 0; i < NF; ++i) {
-    double lnLi = log(GAMMA_LAMBDA * 2 * MtotSys / (mi[i] + mi[i]));
-    c2[i] = 2.0 * C2 * beta[i] * mi[i] / ms * lnLi / lnLsd;
+    // double lnLi = log(GAMMA_LAMBDA * 2 * MtotSys / (mi[i] + mi[i]));
+    // c2[i] = 2.0 * C2 * beta[i] * mi[i] / ms * lnLi / lnLsd;
+    double lnLi = log(GAMMA_LAMBDA * Mtot_over_ms / mi_over_ms[i]);
+    c2[i] = 2.0 * C2 * beta[i] * mi_over_ms[i] * lnLi / lnLsd;
   }
   for (int i = 0; i < NF; ++i) {
     for (int j = 0; j < NF; ++j) {
       if(i != j){
-	double lnLij = log(GAMMA_LAMBDA * 2 * MtotSys / (mi[i] + mi[j]));
+	// double lnLij = log(GAMMA_LAMBDA * 2 * MtotSys / (mi[i] + mi[j]));
+	double lnLij = log(GAMMA_LAMBDA * 2 * Mtot_over_ms / (mi_over_ms[i] + mi_over_ms[j]));
 	c1[i][j] = lnLij / lnLsd * C1;
       } else {
 	c1[i][j] = 0;
@@ -84,20 +93,26 @@ void ThreeFluidSim::initCoeffs() {
     }
   }
 
-  c4[FS][FS] = 0;
-  c4[FS][FB] = 0.123679 / lnLsd * ms / (mb + ms);
-  c4[FS][FD] = 0;
+  {
+    // All expressions here are mass ratios, so identical up to scaling by ms
+    const double ms = mi_over_ms[FS];
+    const double mb = mi_over_ms[FB];
+    const double md = mi_over_ms[FD];
+    c4[FS][FS] = 0;
+    c4[FS][FB] = 0.123679 / lnLsd * ms / (mb + ms);
+    c4[FS][FD] = 0;
     
-  c4[FB][FS] = 0.123679 / lnLsd * ms / mb * ms / (mb + ms);
-  c4[FB][FB] = 5.0 / 16.0 * sqrt(6.0 * PI) / lnLsd * mb / ms;
-  c4[FB][FD] = 0.123679 / lnLsd * (md * md / mb / ms) * (md / (mb + md));
+    c4[FB][FS] = 0.123679 / lnLsd * ms / mb * ms / (mb + ms);
+    c4[FB][FB] = 5.0 / 16.0 * sqrt(6.0 * std::numbers::pi) / lnLsd * mb / ms;
+    c4[FB][FD] = 0.123679 / lnLsd * (md * md / mb / ms) * (md / (mb + md));
 
-  c4[FD][FS] = 0;
-  c4[FD][FB] = 0.123679 / lnLsd * md / ms * md / (mb + md);
-  c4[FD][FD] = 0;
+    c4[FD][FS] = 0;
+    c4[FD][FB] = 0.123679 / lnLsd * md / ms * md / (mb + md);
+    c4[FD][FD] = 0;
+  }
 
-  binary_formation = 0;
-  tidal_cutoff = 0;
+  binary_formation = BINARY_FORMATION_OFF;
+  tidal_cutoff = TIDAL_CUTOFF_OFF;
 }
 
 
@@ -127,8 +142,8 @@ void ThreeFluidSim::initCoeffsYiming() {
   c1[FB][FD] = c1[FD][FB] = 0;
   c1[FS][FS] = c1[FB][FB] = c1[FD][FD] = 0;
 
-  binary_formation = 0;
-  tidal_cutoff = 0;
+  binary_formation = BINARY_FORMATION_OFF;
+  tidal_cutoff = TIDAL_CUTOFF_OFF;
 }
 
 
@@ -255,7 +270,11 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
   }
 }
   
-void ThreeFluidSim::initPlummer(const double rho0, const double xi1, const double xi2, const double zeta1, const double zeta2) {
+void ThreeFluidSim::initPlummer(const double rhos_central, const double xi1, const double xi2, const double zeta1, const double zeta2) {
+  // Basic units
+  // constexpr double r0 = 1;
+  // constexpr double rho0 = 1;
+  // constexpr double M0 = 4 * std::numbers::pi * pow(r0, 3) * rho0;
   constexpr double r0 = 1.0;
   
   for(int f = 0; f < NF; ++f) {
@@ -263,24 +282,13 @@ void ThreeFluidSim::initPlummer(const double rho0, const double xi1, const doubl
   }
     
   double rss = r0, rsb = zeta1 * r0, rsd = zeta2 * r0;
-  double rhoss = rho0, rhosb = xi1 * rho0, rhosd = xi2 * rho0;
+  double rhoss = rhos_central, rhosb = xi1 * rhos_central, rhosd = xi2 * rhos_central;
   for (int i = 0; i < N; ++i) {
     double r2 = (i==0) ? pow(R[0][0] / 2, 2) : pow((R[0][i-1] + R[0][i]) / 2, 2);
     Rho[FS][i] = rhoss / pow(1.0 + r2 / (rss * rss), 2.5);
     Rho[FB][i] = rhosb / pow(1.0 + r2 / (rsb * rsb), 2.5);
     Rho[FD][i] = rhosd / pow(1.0 + r2 / (rsd * rsd), 2.5);
-    U[FS][i] = rhoss * pow(rss, 3) / pow(1.0 + r2 / (rss * rss), 0.5) / 12;
-    U[FB][i] = rhosb * pow(rsb, 3) / pow(1.0 + r2 / (rsb * rsb), 0.5) / 12;
-    U[FD][i] = rhosd * pow(rsd, 3) / pow(1.0 + r2 / (rsd * rsd), 0.5) / 12;
-    // P[FS][i] = (2.0 / 3.0) * U[FS][i] * Rho[FS][i];
-    // P[FB][i] = (2.0 / 3.0) * U[FB][i] * Rho[FB][i];
-    // P[FD][i] = (2.0 / 3.0) * U[FD][i] * Rho[FD][i];
   }
-  // cout << "Initiated profile to:" << endl;
-  // cout << "Rho[FS] = " << Rho[FS].transpose() << endl;
-  // cout << "U[FS] = " << U[FS].transpose() << endl;
-  // cout << "P[FS] = " << P[FS].transpose() << endl;
-  // cout << endl;
 
   updateEnclosedMass();
   for(int f = 0; f < NF; ++f) {
@@ -681,17 +689,18 @@ void ThreeFluidSim::realign() {
 // 4. BINARY FORMATION
 // ----------------------------------------------------------------
 void ThreeFluidSim::applyBinaryFormation() {
+  constexpr double rho0 = 1;
+  constexpr double r0 = 1;
+  const double MtotSys = Menc[FS][N-1] + Menc[FB][N-1] + Menc[FD][N-1];
+  const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
   
-  if(binary_formation == 1) {
+  if(binary_formation == BINARY_FORMATION_MODE_1) {
     // (simple total-mass transfer, notes 1.4)
     using namespace std::numbers;
     
     // Calculate total binary formation rate
     double dM_dt = 0;
     for(int i = 0; i < N; ++i){
-      const double MtotSys = 1e9;
-      const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
-
       // dimensionless formation rate from tidal capture
       // dn_dt is the time derivative of binary number density
       // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
@@ -700,19 +709,17 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 1e-8 * 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 0.131507 * (ms / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
-      dM_dt += ms * (dn_dt_tc + dn_dt_3b) * vol;
+      dM_dt += mb * (dn_dt_tc + dn_dt_3b) * vol;
     }
 
     // Scale Rho so that mass is transferred from single star to binary
     double M_FS_ratio = (Menc[FS][N-1] - dM_dt * Deltat) / Menc[FS][N-1];
     double M_FB_ratio = (Menc[FB][N-1] + dM_dt * Deltat) / Menc[FB][N-1];
-    for(int i = 0; i < N; ++i){
-      Rho[FS][i] *= M_FS_ratio;
-      Rho[FB][i] *= M_FB_ratio;
-    }
+    Rho[FS] *= M_FS_ratio;
+    Rho[FB] *= M_FB_ratio;
     updateEnclosedMass();
 
     for(int f = 0; f < NF; ++f) {
@@ -721,7 +728,7 @@ void ThreeFluidSim::applyBinaryFormation() {
     
     std::cout << "M_FS_ratio, M_FB_ratio, Menc[FS], Menc[FB] = "
 	      << M_FS_ratio << "," << M_FB_ratio << "," << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
-  } else if(binary_formation == 2) {
+  } else if(binary_formation == BINARY_FORMATION_MODE_2) {
     // Transfer by each Lagrangian zone
     // To preserve energy conservation at each binary formation step, we require
     // \begin{align}
@@ -732,9 +739,6 @@ void ThreeFluidSim::applyBinaryFormation() {
     // The second equation states that binary formation doesn't change the internal energy of the single star specie.
     
     for(int i = 0; i < N; ++i){
-      const double MtotSys = 1e9;
-      const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
-
       // dimensionless formation rate from tidal capture
       // dn_dt is the time derivative of binary number density
       // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
@@ -743,7 +747,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 1e-9 * 1.65256 * ms * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 0.131507 * (ms / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       // double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       double dRho = mb * (dn_dt_tc + dn_dt_3b) * Deltat;
@@ -759,6 +763,9 @@ void ThreeFluidSim::applyBinaryFormation() {
     for(int f = 0; f < NF; ++f) {
       P[f].array() = (2.0 / 3.0) * (Rho[f].array() * U[f].array());
     }
+
+    std::cout << "Menc[FS], Menc[FB] = "
+	      << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
   }
   
 }
