@@ -752,11 +752,11 @@ void ThreeFluidSim::applyBinaryFormation() {
       // double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       double dRho = mb * (dn_dt_tc + dn_dt_3b) * Deltat;
 
-      double RhoB_new = (Rho[FS][i] * U[FS][i] + Rho[FB][i] * U[FB][i] - (Rho[FS][i] - dRho) * U[FS][i]) / (Rho[FB][i] + dRho);
+      double UB_new = (Rho[FS][i] * U[FS][i] + Rho[FB][i] * U[FB][i] - (Rho[FS][i] - dRho) * U[FS][i]) / (Rho[FB][i] + dRho);
       
       Rho[FS][i] -= dRho;
       Rho[FB][i] += dRho;
-      U[FB][i] = RhoB_new;
+      U[FB][i] = UB_new;
     }
     updateEnclosedMass();
 
