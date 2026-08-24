@@ -17,7 +17,10 @@ The current executable is a research prototype rather than a general-purpose
 simulation package. In particular, experiment selection and parameters are
 set in `src/main.cpp`, and there is not yet a command line interface or a
 general regression suite. A standalone check covers the hydrostatic
-projection and its active outer-shell convention.
+projection and its active outer-shell convention. The checked-in mode-2
+binary-formation example has also been audited operator by operator; formation
+is conservative to roundoff, but the complete trajectory is currently
+dominated by nonconservative grid realignment.
 
 ## Numerical method
 
@@ -37,29 +40,83 @@ The code uses
 P = (2/3) Rho U,        U = (3/2) P/Rho.
 ```
 
+With fiducial density `rho0` and radius `r0`, the mass unit is
+
+```text
+M0 = 4 pi rho0 r0^3.
+```
+
+The factor `4 pi` is absorbed into this unit, so the dimensionless enclosed
+mass is `Menc = integral Rho r^2 dr`. The particle-mass fields `ms`, `mb`, and
+`md` are stored in units of `M0`; coefficient initialization separately takes
+the ratios `Mtot/ms`, `mb/ms`, and `md/ms`.
+
 One evolution step consists of:
 
 1. A semi-implicit conduction and inter-fluid energy-exchange solve. The
-   resulting block-banded system is solved with `LAPACKE_dgbsv`.
+   resulting block-banded system is solved with `LAPACKE_dgbsv`. This solve
+   also includes binary-heating source terms.
 2. Optional tidal mass removal.
-3. Two linearized hydrostatic-relaxation solves per component, using
+3. Optional binary formation. Mode 2 transfers density locally from single
+   stars to binaries and chooses the updated binary specific energy to
+   preserve `Rho_s U_s + Rho_b U_b` pointwise.
+4. Two linearized hydrostatic-relaxation solves per component, using
    `LAPACKE_dgtsv` while preserving shell mass and specific entropy within
    each relaxation solve. The solve includes the finite-mass outer shell and
    imposes the one-sided equation
    `-P[N-1]/(R[N-1]-R[N-2]) + M[N-1] Rho[N-1]/R[N-1]^2 = 0`.
-4. Logarithmic-grid realignment, followed by reconstruction of enclosed mass
+5. Logarithmic-grid realignment, followed by reconstruction of enclosed mass
    and hydrostatic pressure.
-5. Optional binary formation. This experimental operator is currently applied
-   after projection and can leave the accepted state outside separate
-   component hydrostatic equilibrium.
+
+Formation is therefore applied before hydrostatic projection. The accepted
+state at the end of the step has passed through relaxation and the common-grid
+pressure reconstruction.
 
 The center uses a regularity boundary condition, `U[f][0] = U[f][1]`, and the
 outer value of `U` is held fixed during the conduction solve. Entry `N-1` is
 an active shell with positive density and pressure; the adjacent conduction
 stencil uses its density, while the fixed outer-`U` row acts as a prescribed
 thermal boundary. The timestep starts at `1e-3` and is adjusted using a target
-maximum relative change in `U` of `1e-3`. Evolution ends when a component's
-central density exceeds `1e12` or the configured step limit is reached.
+maximum relative change in `U` of `1e-3`. The measured change determines the
+next step; the current step is not rejected if it exceeds the target. Binary
+formation is not included in this timestep estimate. Evolution ends when a
+component's central density exceeds `1e12` or the configured step limit is
+reached.
+
+### Conduction and heating linearization
+
+The conduction solve linearizes `sqrt(U)` and the binary-heating factor
+`1/sqrt(U)` about the old state. For a source-fluid energy `U_g`,
+
+```text
+1/sqrt(U_g_new) ~= 3/(2 sqrt(U_g_old))
+                   - U_g_new/(2 U_g_old^(3/2)).
+```
+
+Consequently, a heating source `c4[f][g] Rho[g]/sqrt(U[g])` contributes
+
+```text
+A[f,g] += dt c4[f][g] Rho[g] / (2 U[g]^(3/2))
+b[f]   += 3 dt c4[f][g] Rho[g] / (2 sqrt(U[g])).
+```
+
+An independent dense-system assembly agrees with the production banded solve
+exactly for the `c1` and `c4` terms and to `5.6e-17` for the `c2` terms. The
+combined test differs by at most `1.7e-16`.
+
+### Three-body convention
+
+The three-body rate follows Spitzer Eq. 6-37. Spitzer's `v_m` is the
+three-dimensional velocity dispersion, whereas `sigma` is one-dimensional:
+
+```text
+v_m = sqrt(3) sigma,       U = (3/2) sigma^2,       v_m^2 = 2 U.
+```
+
+Thus `3^(9/2)/v_m^9 = 1/sigma^9`. Do not retain the explicit `3^(9/2)` while
+also substituting `sigma = sqrt(2 U/3)`, because that counts the conversion
+twice. With the code's mass normalization, this gives the literal
+`0.0009373511756007407` used in `applyBinaryFormation()`.
 
 The implementation and notation follow:
 
@@ -72,6 +129,7 @@ The implementation and notation follow:
 ```text
 .
 |-- Makefile             GCC/C++20 release build
+|-- docs/                numerical validation notes
 |-- external/            pinned Eigen and Boost.PFR submodules
 |-- plot_packed.nb       Mathematica import and plotting notebook
 `-- src/
@@ -147,10 +205,16 @@ Experiment selection is currently made by editing the calls at the bottom of
 `src/main.cpp`; there is no runtime selector. The file defines one-fluid split,
 single-fluid tidal, two-component tidal, and binary-formation experiments.
 The checked-in entry point currently selects `binary_formation()`. That source
-operator remains experimental and is not covered by the active-outer-shell
-complete-run assessment. The non-formation functions provide the stable
-baseline examples used to validate conduction, projection, realignment, and
-tidal removal.
+function first runs a no-formation baseline and then runs mode-2 formation.
+The formation call currently prints the single and binary enclosed masses on
+every step, so redirect stdout for long runs if the progress log is not
+needed. The non-formation functions provide the baseline examples used to
+validate conduction, projection, realignment, and tidal removal.
+
+The current 150-zone mode-2 example reaches the central-density stop at
+`t=5.75102` after 42,567 steps. This is a numerically finite trajectory, but
+it is not a converged conservative result; see
+[`docs/mode2-validation.md`](docs/mode2-validation.md).
 
 `make clean` removes the executable and object files. It deliberately leaves
 simulation output in place.
@@ -179,6 +243,10 @@ the observer records the first evolved state whose time reaches each requested
 value. If a run ends before a requested time, that snapshot is absent. The
 Lagrangian-radius observer, by contrast, records every evolution step and can
 therefore consume substantial memory in a long run.
+
+The profile observer does not automatically save the terminal state. In the
+checked-in mode-2 example, the requested snapshots end near `t=5.567`, while
+the run ends near `t=5.751`.
 
 The `central_*` files are currently written only by the no-tidal run. Its
 central-value observer is called at the same cadence as the Lagrangian-radius
@@ -215,13 +283,23 @@ convergence checks appropriate to the experiment. Important current limits
 include:
 
 - the log-density interpolation used during realignment is not
-  mass-conservative;
+  mass-conservative; in the checked-in mode-2 run, it removes 17.462% of the
+  initial mass and dominates the resolved-energy error;
 - the standalone hydrostatic check does not yet cover mass conservation,
   energy conservation, complete-run regression, or grid convergence;
-- binary formation still contains an unresolved dimensionless-conversion note
-  and is not covered by the standalone or complete-run checks;
+- mode-2 formation is locally mass- and resolved-energy-conservative to
+  roundoff, but its donor depletion and recipient growth are not included in
+  timestep acceptance;
+- binary binding energy is not evolved as a separate reservoir, so
+  random-plus-gravitational energy is not the complete physical energy when
+  binary heating is active;
+- the fixed outer-`U` conduction row is a prescribed thermal boundary rather
+  than an explicitly conservative zero-flux condition;
 - the tidal prescription is a phenomenological explicit density sink rather
-  than an external gravitational potential; and
-- output writes do not currently report short writes or file-open failures.
+  than an external gravitational potential;
+- the profile observer does not guarantee a terminal snapshot;
+- output writes do not currently report short writes or file-open failures;
+  and
+- mode-2 formation prints component masses on every accepted step.
 
 The repository does not currently declare a software license.
