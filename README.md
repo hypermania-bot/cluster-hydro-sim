@@ -284,10 +284,11 @@ NumPy and Matplotlib are required. From the repository root, run
 python3 script/plot_output.py output/one_fluid_binary_formation
 ```
 
-PNG and PDF files are written to the run's `plots/` subdirectory by default.
-Use `--plot-directory`, `--formats`, `--title`, or
-`--max-profile-snapshots` to override those choices. The plotting regression
-test is independently executable:
+PDF files are written to the run's `plots/` subdirectory by default. Use
+`--formats png` or `--formats pdf png` when raster output is also needed. The
+`--plot-directory`, `--title`, and `--max-profile-snapshots` options control
+the remaining output choices. The plotting regression test is independently
+executable:
 
 ```bash
 python3 test/test_plot_output.py

@@ -75,20 +75,23 @@ class PlotOutputTest(unittest.TestCase):
             self.assertEqual(run.central.time.size, 3)
 
             plots = plot_output.generate_plots(
-                run, directory / "figures", formats=("png",), dpi=50
+                run, directory / "figures"
             )
             self.assertEqual(
                 {path.name for path in plots},
                 {
-                    "density_profiles.png",
-                    "velocity_dispersion_profiles.png",
-                    "lagrangian_radii.png",
-                    "central_density.png",
-                    "central_velocity_dispersion.png",
+                    "density_profiles.pdf",
+                    "velocity_dispersion_profiles.pdf",
+                    "lagrangian_radii.pdf",
+                    "central_density.pdf",
+                    "central_velocity_dispersion.pdf",
                 },
             )
             for path in plots:
                 self.assertGreater(path.stat().st_size, 1000)
+
+            arguments = plot_output.build_argument_parser().parse_args([str(directory)])
+            self.assertEqual(tuple(arguments.formats), ("pdf",))
 
     def test_incomplete_optional_family_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -435,7 +435,7 @@ def _save_figure(
 def generate_plots(
     run: RunData,
     plot_directory: str | Path | None = None,
-    formats: tuple[str, ...] = ("png", "pdf"),
+    formats: tuple[str, ...] = ("pdf",),
     title: str | None = None,
     maximum_snapshots: int = 8,
     dpi: int = 160,
@@ -524,8 +524,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--formats",
         nargs="+",
         choices=("png", "pdf", "svg"),
-        default=("png", "pdf"),
-        help="one or more output formats (default: png pdf)",
+        default=("pdf",),
+        help="one or more output formats (default: pdf)",
     )
     parser.add_argument("--title", help="figure title (default: output directory name)")
     parser.add_argument(
