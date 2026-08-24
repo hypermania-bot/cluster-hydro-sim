@@ -132,6 +132,8 @@ The implementation and notation follow:
 |-- docs/                numerical validation notes
 |-- external/            pinned Eigen and Boost.PFR submodules
 |-- plot_packed.nb       Mathematica import and plotting notebook
+|-- script/              Python analysis and plotting utilities
+|-- test/                standalone numerical and plotting checks
 `-- src/
     |-- main.cpp         experiment definitions and active entry point
     |-- three_fluid.*    simulation state and numerical operators
@@ -257,6 +259,40 @@ The parameter metadata consists of `param.dat`, `paramNames.txt`,
 `paramTypes.txt`, and `paramOffsets.txt`. `param.dat` is a raw C++
 `ThreeFluidParam` object, including implementation-dependent layout and
 padding; use the accompanying type and offset files when importing it.
+
+### Plotting packed output
+
+`script/plot_output.py` is a headless Python equivalent of the per-run parts
+of `plot_packed.nb`. It reads `N` from the parameter-offset metadata, validates
+the packed-array shapes, and makes the following figures when the corresponding
+observer files are present:
+
+- log-log density profiles,
+- log-log one-dimensional velocity-dispersion profiles, using
+  `sigma = sqrt(2 U / 3)`,
+- Lagrangian-radius evolution with linear time and logarithmic radius, and
+- central-density and central-velocity-dispersion evolution.
+
+The central-value and Lagrangian-radius families are optional, but a partially
+written family is reported as an error. Non-finite and nonpositive points are
+omitted from logarithmic plots with a warning, which allows the script to be
+used for diagnosing a failed trajectory.
+
+NumPy and Matplotlib are required. From the repository root, run
+
+```bash
+python3 script/plot_output.py output/one_fluid_binary_formation
+```
+
+PDF files are written to the run's `plots/` subdirectory by default. Use
+`--formats png` or `--formats pdf png` when raster output is also needed. The
+`--plot-directory`, `--title`, and `--max-profile-snapshots` options control
+the remaining output choices. The plotting regression test is independently
+executable:
+
+```bash
+python3 test/test_plot_output.py
+```
 
 For example, NumPy can load one run as follows:
 

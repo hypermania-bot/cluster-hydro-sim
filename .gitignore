@@ -1,0 +1,6 @@
+/main
+/check_hydrostatic_relaxation
+/output/
+*.o
+*.s
+__pycache__/
