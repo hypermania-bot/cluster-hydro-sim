@@ -445,10 +445,10 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 	// Binary heating
 	if(f == FB){
 	  for (int f2 = 0; f2 < NF; ++f2) {
-	    val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
+	    val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / sqrtU[f2][i];
 	  }
 	} else {
-	  val += 1.5 * c4[f][FB] * Deltat * Rho[FB][i] / (2 * pow(U[f][i], 1.5));
+	  val += 1.5 * c4[f][FB] * Deltat * Rho[FB][i] / sqrtU[f][i];
 	}
 	conductionB[i * NF + f] = val;
       }
@@ -780,6 +780,10 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
+      // Spitzer 6-37 gives 3-body rate in terms of v_m, the 3D velocity dispersion
+      // u = 1.5 \sigma^2, where \sigma is 1D velocity dispersion
+      // So convention differ by \sigma = v_m / sqrt(3)
+      // 3^(9/2) = 140.296
       double dn_dt_3b = 0.0009373511756007407 * (ms * M0 / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
