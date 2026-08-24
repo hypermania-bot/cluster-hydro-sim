@@ -273,6 +273,10 @@ observer files are present:
 - Lagrangian-radius evolution with linear time and logarithmic radius, and
 - central-density and central-velocity-dispersion evolution.
 
+In each profile figure, snapshot time is encoded by a rainbow gradient from
+the earliest to the latest saved state. Line style identifies the component:
+dashed for single stars, dot-dashed for binaries, and solid for dark matter.
+
 The central-value and Lagrangian-radius families are optional, but a partially
 written family is reported as an error. Non-finite and nonpositive points are
 omitted from logarithmic plots with a warning, which allows the script to be

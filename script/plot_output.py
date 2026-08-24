@@ -296,6 +296,13 @@ def _snapshot_indices(count: int, maximum: int) -> np.ndarray:
     return np.unique(np.linspace(0, count - 1, maximum, dtype=int))
 
 
+def _rainbow_time_colors(count: int) -> np.ndarray:
+    """Return notebook-style rainbow colors ordered from earliest to latest."""
+    if count <= 0:
+        raise ValueError("number of snapshot colors must be positive")
+    return matplotlib.colormaps["rainbow"](np.linspace(0.0, 1.0, count))
+
+
 def _plot_positive(
     ax: plt.Axes,
     x: np.ndarray,
@@ -320,9 +327,9 @@ def _profile_figure(
     maximum_snapshots: int,
 ) -> plt.Figure:
     indices = _snapshot_indices(profiles.time.size, maximum_snapshots)
+    time_colors = _rainbow_time_colors(indices.size)
     fig, ax = plt.subplots(figsize=(8.0, 8.0))
-    for rank, index in enumerate(indices):
-        opacity = 0.48 + 0.52 * (rank + 1) / len(indices)
+    for index, time_color in zip(indices, time_colors):
         for component in COMPONENTS:
             values = (
                 profiles.rho[component][index]
@@ -334,10 +341,9 @@ def _profile_figure(
                 ax,
                 profiles.radius[index],
                 values,
-                color=style["color"],
+                color=time_color,
                 linestyle=style["linestyle"],
                 linewidth=1.7,
-                alpha=opacity,
                 label=(
                     f"{COMPONENT_LABELS[component]} "
                     rf"$\hat{{t}}={profiles.time[index]:.4f}$"

@@ -74,6 +74,21 @@ class PlotOutputTest(unittest.TestCase):
             self.assertEqual(run.radii.radius["s"].shape, (3, 2))
             self.assertEqual(run.central.time.size, 3)
 
+            profile_figure = plot_output._profile_figure(
+                run.profiles, "density", "encoding check", maximum_snapshots=8
+            )
+            lines = profile_figure.axes[0].lines
+            self.assertEqual(
+                [line.get_linestyle() for line in lines],
+                ["--", "-.", "-", "--", "-.", "-"],
+            )
+            for line in lines[1:3]:
+                np.testing.assert_allclose(line.get_color(), lines[0].get_color())
+            for line in lines[4:6]:
+                np.testing.assert_allclose(line.get_color(), lines[3].get_color())
+            self.assertFalse(np.allclose(lines[0].get_color(), lines[3].get_color()))
+            plot_output.plt.close(profile_figure)
+
             plots = plot_output.generate_plots(
                 run, directory / "figures"
             )
