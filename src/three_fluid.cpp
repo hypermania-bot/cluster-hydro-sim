@@ -103,7 +103,7 @@ void ThreeFluidSim::initCoeffs(const double Mtot_over_ms, const double mb_over_m
     c4[FS][FD] = 0;
     
     c4[FB][FS] = 0.123679 / lnLsd * ms / mb * ms / (mb + ms);
-    c4[FB][FB] = 5.0 / 16.0 * sqrt(6.0 * std::numbers::pi) / lnLsd * mb / ms;
+    c4[FB][FB] = 5.0 / (16.0 * sqrt(6.0) * std::numbers::pi) / lnLsd * mb / ms;
     c4[FB][FD] = 0.123679 / lnLsd * (md * md / mb / ms) * (md / (mb + md));
 
     c4[FD][FS] = 0;
@@ -351,6 +351,8 @@ void ThreeFluidSim::solveConductionLAPACKE() {
       conductionAB[k + col * ldab] = val;
     } else {
       cout << "(solveConductionLAPACKE) Incorrect banded matrix index!" << endl;
+      cout << "(solveConductionLAPACKE) Input row, col, val = "
+	   << row << ", " << col << ", " << val << endl;
       exit(0);
     }
   };
@@ -383,14 +385,82 @@ void ThreeFluidSim::solveConductionLAPACKE() {
     double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
 
     for (int f = 0; f < NF; ++f) {
+      // f is the label for the equation, e.g. f=FS means equation dU[FS]/dt = ...
       int row = i * NF + f;
 
-      // Coefficients for same fluid (tridiagonal part)
+      // There are 9 possible nonzero entries on a given row, they are coeffs for:
+      // U[FS][i-1],U[FS][i],U[FS][i+1]
+      // U[FB][i-1],U[FB][i],U[FB][i+1]
+      // U[FD][i-1],U[FD][i],U[FD][i+1]
+      // Generically they are U[f2][j]
+      
+      std::array<std::array<double, 3>, NF> row_coeffs;
+      row_coeffs.fill({0.0, 0.0, 0.0});
+      // row_coeffs[f2] = {(i-1 val), (i val), (i+1 val)};
+
+      // Conduction contribution (c2)
+      row_coeffs[f][0] = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - logRho[f][i-1] + logRho[f][i+1]) / (8 * sqrtU[f][i-1]) / R2dlogR2;
+      row_coeffs[f][1] = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
+      row_coeffs[f][2] = c2[f] * Deltat * (2*logR[i-1] - 2*logR[i] - 4 + logRho[f][i-1] - logRho[f][i+1]) / (8 * sqrtU[f][i+1]) / R2dlogR2;
+      
+      // Dynamical heating contribution (c1)
+      for(int f2 = 0; f2 < NF; ++f2){
+	if(f2 == f){
+	  for(int f3 = 0; f3 < NF; ++f3){
+	    if(f3 == f) continue;
+	    row_coeffs[f2][1] += Deltat * c1[f][f3] * (mi[f] / ms) * Rho[f3][i] / pow(U[f][i] + U[f3][i], 1.5);
+	  }
+	} else {
+	  row_coeffs[f2][1] += - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5);
+	}
+      }
+
+      // Binary heating contribution (c4)
+      if(f == FB){
+	for(int f2 = 0; f2 < NF; ++f2){
+	  row_coeffs[f2][1] += Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
+	}
+      } else {
+	row_coeffs[f][1] += Deltat * c4[f][FB] * Rho[FB][i] / (2 * pow(U[f][i], 1.5));
+      }
+
+      // Set band entries
+      for(int f2 = 0; f2 < NF; ++f2){
+	for(int j = 0; j < 3; ++j){
+	  int col = (i + (j-1)) * NF + f2;
+	  if(row_coeffs[f2][j] != 0){
+	    set_band(row, col, row_coeffs[f2][j]);
+	  }
+	}
+      }
+
+      // Set RHS
+      {
+	// Conduction
+	double val = U[f][i]
+	  + (c2[f] * Deltat) / (8.0 * R2dlogR2)
+	  * ( -8 * sqrtU[f][i]
+	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + logRho[f][i-1] - logRho[f][i+1])
+	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - logRho[f][i-1] + logRho[f][i+1]) );
+	// Binary heating
+	if(f == FB){
+	  for (int f2 = 0; f2 < NF; ++f2) {
+	    val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
+	  }
+	} else {
+	  val += 1.5 * c4[f][FB] * Deltat * Rho[FB][i] / (2 * pow(U[f][i], 1.5));
+	}
+	conductionB[i * NF + f] = val;
+      }
+      continue;
+      // Rest of code in this loop is probably incorrect.
+      
+      // Coefficients for same fluid (f2 == f)
       double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - logRho[f][i-1] + logRho[f][i+1]) / (8 * sqrtU[f][i-1]) / R2dlogR2;
       double coefR = c2[f] * Deltat * (2*logR[i-1] - 2*logR[i] - 4 + logRho[f][i-1] - logRho[f][i+1]) / (8 * sqrtU[f][i+1]) / R2dlogR2;
       double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
 
-      // Cross‑fluid terms (same i)
+      // Coeffs for f2 != f, j == i
       for (int f2 = 0; f2 < NF; ++f2) {
 	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
 	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
@@ -691,6 +761,7 @@ void ThreeFluidSim::realign() {
 void ThreeFluidSim::applyBinaryFormation() {
   constexpr double rho0 = 1;
   constexpr double r0 = 1;
+  constexpr double M0 = 4 * std::numbers::pi * pow(r0, 3) * rho0;
   const double MtotSys = Menc[FS][N-1] + Menc[FB][N-1] + Menc[FD][N-1];
   const double lnLsd = log(GAMMA_LAMBDA * 2 * MtotSys / (ms + md));
   
@@ -709,7 +780,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 0.131507 * (ms / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 0.0009373511756007407 * (ms * M0 / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       dM_dt += mb * (dn_dt_tc + dn_dt_3b) * vol;
@@ -747,7 +818,7 @@ void ThreeFluidSim::applyBinaryFormation() {
       double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
-      double dn_dt_3b = 0.131507 * (ms / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
+      double dn_dt_3b = 0.0009373511756007407 * (ms * M0 / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));
       // double dn_dt_3b = 0;
       // double vol = (i == 0) ? (pow(R[FS][i], 3) / 3.0) : ((pow(R[FS][i], 3) - pow(R[FS][i-1], 3)) / 3.0);
       double dRho = mb * (dn_dt_tc + dn_dt_3b) * Deltat;
