@@ -773,11 +773,9 @@ void ThreeFluidSim::applyBinaryFormation() {
     double dM_dt = 0;
     for(int i = 0; i < N; ++i){
       // dimensionless formation rate from tidal capture
-      // dn_dt is the time derivative of binary number density
-      // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
-      // double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd;
-      // double dn_dt_tc = pow(Rho[FS][i], 2) / lnLsd;
-      double dn_dt_tc = 0;
+      // In Spitzer conventions around 6-43, assume \mu=0, (r_pc/R_s)_10 = 8.3, \gamma=1.01
+      double dn_dt_tc = 3.52e-6 * pow(ms * M0 / (pow(r0, 3) * rho0), -2) * pow(Rho[FS][i], 2) / (lnLsd * sqrt(U[FS][i]));
+      // double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
       // Spitzer 6-37 gives 3-body rate in terms of v_m, the 3D velocity dispersion
@@ -815,11 +813,8 @@ void ThreeFluidSim::applyBinaryFormation() {
     
     for(int i = 0; i < N; ++i){
       // dimensionless formation rate from tidal capture
-      // dn_dt is the time derivative of binary number density
-      // For now assum ms = M_sun, Rs = R_sun, v_m = 10km/s
-      // double dn_dt_tc = 131513.0 * pow(Rho[FS][i], 2) / lnLsd;
-      // double dn_dt_tc = pow(Rho[FS][i], 2) / lnLsd;
-      double dn_dt_tc = 0;
+      double dn_dt_tc = 3.52e-6 * pow(ms * M0 / (pow(r0, 3) * rho0), -2) * pow(Rho[FS][i], 2) / (lnLsd * sqrt(U[FS][i]));
+      // double dn_dt_tc = 0;
 
       // dimensionless formation rate from 3-body interaction
       double dn_dt_3b = 0.0009373511756007407 * (ms * M0 / (pow(r0, 3) * rho0)) * pow(Rho[FS][i], 3) / (lnLsd * pow(U[FS][i], 4.5));

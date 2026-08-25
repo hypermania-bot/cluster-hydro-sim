@@ -166,13 +166,14 @@ public:
     std::array<Eigen::VectorXd, NF> lastU(U);
   
     while(true) {
-      // std::cout << std::setprecision(9) << std::left;
-      // cout << "step, Deltat = " << step << ", " << Deltat << endl;
+      std::cout << std::setprecision(9) << std::left;
+      cout << "step, t, Deltat = " << step << ", " << totalTime << ", " << Deltat << endl;
       observer(*this);
     
       double curMaxDensity = max({Rho[FS][0], Rho[FB][0], Rho[FD][0]});
       if(curMaxDensity > StopDensity) break;
       if(step >= maxSteps) break;
+      if(Deltat > 1) break;
       
       // Start of timestep
       lastU = U;
