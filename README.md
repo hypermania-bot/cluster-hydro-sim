@@ -274,8 +274,10 @@ observer files are present:
 - central-density and central-velocity-dispersion evolution.
 
 In each profile figure, snapshot time is encoded by a rainbow gradient from
-the earliest to the latest saved state. Line style identifies the component:
-dashed for single stars, dot-dashed for binaries, and solid for dark matter.
+the earliest to the latest saved state. Curve style identifies the component:
+asterisk markers for single stars, dashed lines for binaries, and solid lines
+for dark matter. Long curves automatically subsample the single-star markers
+to keep the profiles legible.
 
 The central-value and Lagrangian-radius families are optional, but a partially
 written family is reported as an error. Non-finite and nonpositive points are
