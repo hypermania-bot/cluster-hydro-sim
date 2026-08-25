@@ -28,10 +28,11 @@ COMPONENT_LABELS = {
     "d": "DM",
 }
 COMPONENT_STYLES = {
-    "s": {"color": "#aa0000", "linestyle": "--"},
-    "b": {"color": "#006400", "linestyle": "-."},
-    "d": {"color": "#666666", "linestyle": "-"},
+    "s": {"color": "#aa0000", "linestyle": "None", "marker": "*"},
+    "b": {"color": "#006400", "linestyle": "--", "marker": None},
+    "d": {"color": "#666666", "linestyle": "-", "marker": None},
 }
+MAX_COMPONENT_MARKERS = 32
 PARAM_DTYPES = {
     "Integer64": np.dtype("<i8"),
     "Real64": np.dtype("<f8"),
@@ -296,6 +297,31 @@ def _snapshot_indices(count: int, maximum: int) -> np.ndarray:
     return np.unique(np.linspace(0, count - 1, maximum, dtype=int))
 
 
+def _rainbow_time_colors(count: int) -> np.ndarray:
+    """Return notebook-style rainbow colors ordered from earliest to latest."""
+    if count <= 0:
+        raise ValueError("number of snapshot colors must be positive")
+    return matplotlib.colormaps["rainbow"](np.linspace(0.0, 1.0, count))
+
+
+def _component_curve_style(component: str, sample_count: int) -> dict[str, object]:
+    """Return the marker/line encoding for one fluid component."""
+    if sample_count <= 0:
+        raise ValueError("component curves must contain at least one sample")
+    style = COMPONENT_STYLES[component]
+    options: dict[str, object] = {
+        "linestyle": style["linestyle"],
+        "marker": style["marker"],
+    }
+    if style["marker"] is not None:
+        options.update(
+            markersize=6.0,
+            markeredgewidth=0.6,
+            markevery=max(1, int(np.ceil(sample_count / MAX_COMPONENT_MARKERS))),
+        )
+    return options
+
+
 def _plot_positive(
     ax: plt.Axes,
     x: np.ndarray,
@@ -320,24 +346,22 @@ def _profile_figure(
     maximum_snapshots: int,
 ) -> plt.Figure:
     indices = _snapshot_indices(profiles.time.size, maximum_snapshots)
+    time_colors = _rainbow_time_colors(indices.size)
     fig, ax = plt.subplots(figsize=(8.0, 8.0))
-    for rank, index in enumerate(indices):
-        opacity = 0.48 + 0.52 * (rank + 1) / len(indices)
+    for index, time_color in zip(indices, time_colors):
         for component in COMPONENTS:
             values = (
                 profiles.rho[component][index]
                 if quantity == "density"
                 else np.sqrt((2.0 / 3.0) * profiles.energy[component][index])
             )
-            style = COMPONENT_STYLES[component]
             _plot_positive(
                 ax,
                 profiles.radius[index],
                 values,
-                color=style["color"],
-                linestyle=style["linestyle"],
+                color=time_color,
                 linewidth=1.7,
-                alpha=opacity,
+                **_component_curve_style(component, profiles.radius[index].size),
                 label=(
                     f"{COMPONENT_LABELS[component]} "
                     rf"$\hat{{t}}={profiles.time[index]:.4f}$"
@@ -389,14 +413,13 @@ def _central_figure(central: CentralData, quantity: str, title: str) -> plt.Figu
             if quantity == "density"
             else np.sqrt((2.0 / 3.0) * central.energy[component])
         )
-        style = COMPONENT_STYLES[component]
         _plot_positive(
             ax,
             central.time,
             values,
-            color=style["color"],
-            linestyle=style["linestyle"],
+            color=COMPONENT_STYLES[component]["color"],
             linewidth=1.8,
+            **_component_curve_style(component, central.time.size),
             label=COMPONENT_LABELS[component],
         )
     ax.set_xscale("log")
