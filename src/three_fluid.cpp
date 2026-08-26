@@ -799,8 +799,8 @@ void ThreeFluidSim::applyBinaryFormation() {
       P[f].array() = (2.0 / 3.0) * (Rho[f].array() * U[f].array());
     }
     
-    std::cout << "M_FS_ratio, M_FB_ratio, Menc[FS], Menc[FB] = "
-	      << M_FS_ratio << "," << M_FB_ratio << "," << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
+    // std::cout << "M_FS_ratio, M_FB_ratio, Menc[FS], Menc[FB] = "
+    // 	      << M_FS_ratio << "," << M_FB_ratio << "," << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
   } else if(binary_formation == BINARY_FORMATION_MODE_2) {
     // Transfer by each Lagrangian zone
     // To preserve energy conservation at each binary formation step, we require
@@ -834,8 +834,8 @@ void ThreeFluidSim::applyBinaryFormation() {
       P[f].array() = (2.0 / 3.0) * (Rho[f].array() * U[f].array());
     }
 
-    std::cout << "Menc[FS], Menc[FB] = "
-	      << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
+    // std::cout << "Menc[FS], Menc[FB] = "
+    // 	      << Menc[FS][N-1] << "," << Menc[FB][N-1] << std::endl;
   }
   
 }

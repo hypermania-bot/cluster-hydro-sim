@@ -158,32 +158,75 @@ void tidal_bench_AB(void){
 }
 
 void binary_formation(void){
-  const std::vector times_to_save({0.0, 5.5, 5.56, 5.567});
-
-  // {
-  //   ThreeFluidSim sim;
-  //   sim.initSolver(150);
-  //   sim.initPlummer(1.0, 1e-10, 1e-10, 1.0, 1.0);
-  //   const double Mtot = sim.Menc[FS][sim.N-1] + sim.Menc[FB][sim.N-1] + sim.Menc[FD][sim.N-1];
-  //   sim.ms = Mtot / 1e6; // Assuming cluster mass = 10^6 ms
-  //   sim.mb = 2.0 * sim.ms;
-  //   sim.md = 1e-10 * sim.ms;
-  //   sim.initCoeffs(1e6, 2.0, 1e-10);
-    
-  //   ApproximateTimeObserver observer1(times_to_save);
-  //   LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-  //   ObserverPack observer(observer1, observer2);
-    
-  //   std::string dir = "output/one_fluid_baseline/";
-  //   prepare_directory_for_output(dir);
-  //   sim.saveParams(dir);
-  //   sim.evolve(50000000, observer);
-  //   observer.save(dir);
-  // }
-
+  const int N = 500;
+  
+  // Baseline
   {
     ThreeFluidSim sim;
-    sim.initSolver(150);
+    sim.initSolver(N);
+    sim.initPlummer(1.0, 1e-10, 1e-10, 1.0, 1.0);
+    const double Mtot = sim.Menc[FS][sim.N-1] + sim.Menc[FB][sim.N-1] + sim.Menc[FD][sim.N-1];
+    sim.ms = Mtot / 1e6; // Assuming cluster mass = 10^6 ms
+    sim.mb = 2.0 * sim.ms;
+    sim.md = 1e-10 * sim.ms;
+    sim.initCoeffs(1e6, 2.0, 1e-10);
+    // // Artificially turn off dynamical heating to check
+    // for(int f = 0; f < NF; ++f){
+    //   for(int f2 = 0; f2 < NF; ++f2){
+    // 	sim.c1[f][f2] = 0.0;
+    //   }
+    // }
+
+    
+    ApproximateTimeObserver observer1({0.0, 5.0, 5.8, 5.806, 5.80664});
+    LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
+    ObserverPack observer(observer1, observer2);
+    
+    std::string dir = "output/one_fluid_baseline/";
+    prepare_directory_for_output(dir);
+    sim.saveParams(dir);
+    sim.evolve(50000000, observer);
+    observer.save(dir);
+  }
+  
+  // With binary formation, no heating
+  {
+    ThreeFluidSim sim;
+    sim.initSolver(N);
+    sim.initPlummer(1.0, 1e-10, 1e-10, 1.0, 1.0);
+    const double Mtot = sim.Menc[FS][sim.N-1] + sim.Menc[FB][sim.N-1] + sim.Menc[FD][sim.N-1];
+    sim.ms = Mtot / 1e6; // Assuming cluster mass = 10^6 ms
+    sim.mb = 2.0 * sim.ms;
+    sim.md = 1e-10 * sim.ms;
+    sim.initCoeffs(1e6, 2.0, 1e-10);
+    sim.binary_formation = BINARY_FORMATION_MODE_2;
+    // Artificially turn off binary heating to check
+    for(int f = 0; f < NF; ++f){
+      for(int f2 = 0; f2 < NF; ++f2){
+	sim.c4[f][f2] = 0.0;
+      }
+    }
+
+    ApproximateTimeObserver observer1({0.0, 3.0, 3.8, 3.82, 3.823});
+    LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
+    // CentralValueObserver observer3;
+    // ObserverPack observer(observer1, observer2, observer3);    
+    ObserverPack observer(observer1, observer2);
+    
+    std::string dir = "output/one_fluid_binary_formation_without_binary_heating/";
+    prepare_directory_for_output(dir);
+    sim.saveParams(dir);
+    sim.evolve(1000000, observer);
+    observer.save(dir);
+
+    std::cout << "Menc[FS], Menc[FB] = "
+	      << sim.Menc[FS][N-1] << "," << sim.Menc[FB][N-1] << std::endl;
+  }
+  
+  // With binary formation and heating
+  {
+    ThreeFluidSim sim;
+    sim.initSolver(N);
     sim.initPlummer(1.0, 1e-10, 1e-10, 1.0, 1.0);
     const double Mtot = sim.Menc[FS][sim.N-1] + sim.Menc[FB][sim.N-1] + sim.Menc[FD][sim.N-1];
     sim.ms = Mtot / 1e6; // Assuming cluster mass = 10^6 ms
@@ -192,7 +235,7 @@ void binary_formation(void){
     sim.initCoeffs(1e6, 2.0, 1e-10);
     sim.binary_formation = BINARY_FORMATION_MODE_2;
 
-    ApproximateTimeObserver observer1(times_to_save);
+    ApproximateTimeObserver observer1({0.0, 1.0, 10.0, 100.0, 692.0});
     LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
     // CentralValueObserver observer3;
     // ObserverPack observer(observer1, observer2, observer3);    
@@ -203,6 +246,9 @@ void binary_formation(void){
     sim.saveParams(dir);
     sim.evolve(1000000, observer);
     observer.save(dir);
+
+    std::cout << "Menc[FS], Menc[FB] = "
+	      << sim.Menc[FS][N-1] << "," << sim.Menc[FB][N-1] << std::endl;
   }
 
 }
