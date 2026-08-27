@@ -139,6 +139,13 @@ struct ObserverPack {
   }
 
   void save(const std::string &dir) const {
-    std::apply([&](auto &&... args) { ((args.save(dir)), ...); }, observers);
+    // std::apply([&](auto &&... args) { ((args.save(dir)), ...); }, observers);
+    std::apply([&](auto &&... args) {
+      ([&](auto &&arg){
+	if constexpr (requires { arg.save(dir); }) {
+	  arg.save(dir);
+	}
+      }(args), ...);
+    }, observers);
   }
 };
