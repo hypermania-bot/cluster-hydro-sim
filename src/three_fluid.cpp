@@ -452,85 +452,8 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 	}
 	conductionB[i * NF + f] = val;
       }
-      continue;
-      // Rest of code in this loop is probably incorrect.
-      
-      // Coefficients for same fluid (f2 == f)
-      double coefL = c2[f] * Deltat * (2*logR[i] - 2*logR[i-1] - 4 - logRho[f][i-1] + logRho[f][i+1]) / (8 * sqrtU[f][i-1]) / R2dlogR2;
-      double coefR = c2[f] * Deltat * (2*logR[i-1] - 2*logR[i] - 4 + logRho[f][i-1] - logRho[f][i+1]) / (8 * sqrtU[f][i+1]) / R2dlogR2;
-      double coefC = 1.0 + c2[f] * Deltat / sqrtU[f][i] / R2dlogR2;
-
-      // Coeffs for f2 != f, j == i
-      for (int f2 = 0; f2 < NF; ++f2) {
-	coefC += Deltat * c1[f][f2] * (mi[f] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
-	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
-      }
-
-      // Set band entries
-      set_band(row, row - NF, coefL);   // previous i, same f
-      set_band(row, row, coefC);        // diagonal
-      set_band(row, row + NF, coefR);   // next i, same f
-
-      // Cross terms (different fluids, same i)
-      for (int f2 = 0; f2 < NF; ++f2) {
-	if (f2 == f) continue;
-	int col = i * NF + f2;
-	double cross = - Deltat * c1[f][f2] * (mi[f2] / ms) * Rho[f2][i] / pow(U[f][i] + U[f2][i], 1.5)
-	  + Deltat * c4[f][f2] * Rho[f2][i] / (2 * pow(U[f2][i], 1.5));
-	set_band(row, col, cross);
-      }
-
-      {
-	// set RHS
-	double val = U[f][i]
-	  + (c2[f] * Deltat) / (8.0 * R2dlogR2)
-	  * ( -8 * sqrtU[f][i]
-	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + logRho[f][i-1] - logRho[f][i+1])
-	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - logRho[f][i-1] + logRho[f][i+1]) );
-	for (int f2 = 0; f2 < NF; ++f2) {
-	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
-	}
-	conductionB[i * NF + f] = val;
-      }
     }
   }
-
-  // ----- Build right‑hand side (explicit diffusion) -----
-  // Reorder RHS into the same i‑major, f‑minor layout.
-  // for (int f = 0; f < NF; ++f) {
-
-  //   // bulk i = 1 ... N-3
-  //   for (int i = 1; i < N - 2; ++i) {
-  // 	double dlogR = logR[i] - logR[i-1];
-  // 	double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
-  // 	double val = U[f][i]
-  // 	  + (c2[f] * Deltat) / (8.0 * R2dlogR2)
-  // 	  * ( -8 * sqrtU[f][i]
-  // 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + logRho[f][i-1] - logRho[f][i+1])
-  // 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - logRho[f][i-1] + logRho[f][i+1]) );
-  // 	for (int f2 = 0; f2 < NF; ++f2) {
-  // 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
-  // 	}
-  // 	conductionB[i * NF + f] = val;
-  //   }
-
-  //   // i = N-2
-  //   {
-  // 	int i = N - 2;
-  // 	double dlogR = logR[i] - logR[i-1];
-  // 	double R2dlogR2 = dlogR * dlogR * R[FS][i-1] * R[FS][i];
-  // 	double val = U[f][i]
-  // 	  + (c2[f] * Deltat) / (8.0 * R2dlogR2)
-  // 	  * ( -8 * sqrtU[f][i]
-  // 	      + sqrtU[f][i-1] * (2*logR[i-1] - 2*logR[i] + 4 + 2*logRho[f][i-1] - 2*logRho[f][i])
-  // 	      + sqrtU[f][i+1] * (2*logR[i] - 2*logR[i-1] + 4 - 2*logRho[f][i-1] + 2*logRho[f][i]) );
-  // 	for (int f2 = 0; f2 < NF; ++f2) {
-  // 	  val += 1.5 * c4[f][f2] * Deltat * Rho[f2][i] / (2 * pow(U[f][i], 1.5));
-  // 	}
-  // 	conductionB[i * NF + f] = val;
-  //   }
-
-  // }
 
   // ---------- Solve using LAPACKE_dgbsv ----------
   int info = LAPACKE_dgbsv(LAPACK_COL_MAJOR,   // storage order
