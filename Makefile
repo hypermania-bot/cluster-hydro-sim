@@ -59,14 +59,21 @@ all: $(program_NAME)
 $(program_NAME): $(program_OBJS)
 	$(LINK.cc) $(program_OBJS) -o $(program_NAME) $(LDLIBS)
 
-check: $(check_NAME) check_statler check_examples
+check: $(check_NAME) check_statler check_examples check_tidal_force
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./$(check_NAME)
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_statler
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_examples
+	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_tidal_force
 	python3 -m unittest discover -s test -p 'test_*.py'
 
 check_statler: test/check_statler.o $(solver_check_OBJS)
 	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+
+check_tidal_force: test/check_tidal_force.o $(solver_check_OBJS)
+	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+
+test/check_tidal_force.o: test/check_tidal_force.cpp $(program_HPP_SRCS)
+	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
 
 check_examples: test/check_examples.o $(solver_check_OBJS)
 	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
@@ -114,6 +121,7 @@ clean:
 	$(RM) $(check_NAME)
 	$(RM) $(check_OBJS)
 	$(RM) check_statler check_examples main-strict test/check_statler.o test/check_examples.o test/main.o
+	$(RM) check_tidal_force test/check_tidal_force.o
 	$(RM) $(program_CXX_ASMS)
 	$(RM) $(wildcard *~)
 	$(RM) -r html latex

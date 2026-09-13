@@ -45,6 +45,7 @@ struct ThreeFluidParam {
   long long int tidal_cutoff = TIDAL_CUTOFF_OFF;
   double tidal_cutoff_factor = 50;
   double tidal_radius = 10;
+  double tidal_q = 0; // Outward acceleration +q*r; q/(4*pi*G*rho0), zero disables.
 
   // Numerical control parameters
   double Deltat = 1e-3; // Initial timestep; adaptive timestep is simulation state.
@@ -112,7 +113,8 @@ public:
   // Deprecated compatibility initializer; initPlummer is canonical.
   void initPlummerYiming(const double rho0, const double xi1, const double xi2, const double zeta1, const double zeta2);
   // Assign initial conditions
-  void initPlummer(const double rhos_central, const double xi1, const double xi2, const double zeta1, const double zeta2);
+  void initPlummer(const double rhos_central, const double xi1, const double xi2, const double zeta1, const double zeta2,
+                   const double outer_radius = 1e3);
 
   // IO
   void printParams() const;
@@ -122,6 +124,9 @@ public:
 
   // Fragments of main evolution step
   void updateEnclosedMass();
+  double hydrostaticMass(const int f, const int i) const;
+  double externalPotentialEnergy() const;
+  void assembleRelaxation(const int f);
   void solveConductionLAPACKE();
   void solveRelaxationLAPACKE(const int f);
   void realign();

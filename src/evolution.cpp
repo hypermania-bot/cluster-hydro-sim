@@ -32,6 +32,7 @@ void ThreeFluidSim::validateEvolution() const {
   if(param.N<3 || param.maxSteps<0 || !std::isfinite(param.maxTime) || param.maxTime<0 ||
      !std::isfinite(totalTime) || totalTime<0 || !positive(Deltat) ||
      !positive(param.u_change_tolerance) || !positive(param.StopDensity) || !positive(param.max_timestep) ||
+     !std::isfinite(param.tidal_q) || param.tidal_q<0 ||
      (param.runtime_validation!=0 && param.runtime_validation!=1))
     throw std::invalid_argument("invalid evolution controls");
   if(param.binary_formation==BINARY_FORMATION_POWER_LAW &&
@@ -39,6 +40,26 @@ void ThreeFluidSim::validateEvolution() const {
       param.capture_coefficient<0))
     throw std::invalid_argument("invalid power-law formation settings");
   if(param.runtime_validation) sanityCheck();
+}
+
+double ThreeFluidSim::hydrostaticMass(const int f,const int i) const {
+  const double mass=Menc[FS][i]+Menc[FB][i]+Menc[FD][i];
+  if(param.tidal_q==0) return mass; // Preserve the isolated arithmetic.
+  if(!std::isfinite(param.tidal_q)||param.tidal_q<0)
+    throw std::invalid_argument("tidal_q must be finite and nonnegative");
+  const double effective=mass-param.tidal_q*std::pow(R[f][i],3);
+  if(!(effective>0))
+    throw std::runtime_error("hydrostatic domain reaches tidal force balance; an escape boundary is required");
+  return effective;
+}
+
+double ThreeFluidSim::externalPotentialEnergy() const {
+  double result=0;
+  for(int f=0;f<NF;++f) for(int i=0;i<param.N;++i) {
+    const double inner=i?R[f][i-1]:0;
+    result-=param.tidal_q*Rho[f][i]*(std::pow(R[f][i],5)-std::pow(inner,5))/10;
+  }
+  return result; // Integral rho * (-q*r^2/2) * r^2 dr, no self-energy 1/2.
 }
 
 double ThreeFluidSim::captureNumberRate(int j) const {

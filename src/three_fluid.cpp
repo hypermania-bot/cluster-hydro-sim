@@ -179,6 +179,7 @@ void ThreeFluidSim::printParams() const {
 
   cout << "binary_formation = " << param.binary_formation << endl;
   cout << "tidal_cutoff = " << param.tidal_cutoff << endl;
+  cout << "tidal_q = " << param.tidal_q << endl;
 }
 
 
@@ -257,13 +258,13 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
   // finite-mass shell satisfying the same one-sided equation as relaxation.
   for(int f = 0; f < NF; ++f) {
     const double outer_width = R[f][param.N-1] - R[f][param.N-2];
-    const double outer_mass = Menc[FS][param.N-1] + Menc[FB][param.N-1] + Menc[FD][param.N-1];
+    const double outer_mass = hydrostaticMass(f,param.N-1);
     P[f][param.N-1] = outer_mass * Rho[f][param.N-1] * outer_width / pow(R[f][param.N-1], 2);
   }
   for(int i = param.N-2; i >= 0; --i) {
     for(int f = 0; f < NF; ++f) {
       const double radial_span = (i == 0) ? R[f][1] : R[f][i+1] - R[f][i-1];
-      const double enclosed_mass = Menc[FS][i] + Menc[FB][i] + Menc[FD][i];
+      const double enclosed_mass = hydrostaticMass(f,i);
       P[f][i] = P[f][i+1] + enclosed_mass * (Rho[f][i] + Rho[f][i+1])
         * radial_span / (4.0 * pow(R[f][i], 2));
     }
@@ -273,7 +274,10 @@ void ThreeFluidSim::initPlummerYiming(const double rho0, const double xi1, const
   }
 }
   
-void ThreeFluidSim::initPlummer(const double rhos_central, const double xi1, const double xi2, const double zeta1, const double zeta2) {
+void ThreeFluidSim::initPlummer(const double rhos_central, const double xi1, const double xi2, const double zeta1, const double zeta2,
+                              const double outer_radius) {
+  if(!std::isfinite(outer_radius)||outer_radius<=0.01)
+    throw std::invalid_argument("Plummer outer radius must exceed the inner radius");
 
   // Basic units
   // constexpr double r0 = 1;
@@ -282,7 +286,7 @@ void ThreeFluidSim::initPlummer(const double rhos_central, const double xi1, con
   constexpr double r0 = 1.0;
   
   for(int f = 0; f < NF; ++f) {
-    R[f].array() = pow(10.0, VectorXd::LinSpaced(param.N, -2.0, 3.0).array());
+    R[f].array() = pow(10.0, VectorXd::LinSpaced(param.N, -2.0, log10(outer_radius)).array());
   }
     
   double rss = r0, rsb = zeta1 * r0, rsd = zeta2 * r0;
@@ -297,13 +301,13 @@ void ThreeFluidSim::initPlummer(const double rhos_central, const double xi1, con
   updateEnclosedMass();
   for(int f = 0; f < NF; ++f) {
     const double outer_width = R[f][param.N-1] - R[f][param.N-2];
-    const double outer_mass = Menc[FS][param.N-1] + Menc[FB][param.N-1] + Menc[FD][param.N-1];
+    const double outer_mass = hydrostaticMass(f,param.N-1);
     P[f][param.N-1] = outer_mass * Rho[f][param.N-1] * outer_width / pow(R[f][param.N-1], 2);
   }
   for(int i = param.N-2; i >= 0; --i) {
     for(int f = 0; f < NF; ++f) {
       const double radial_span = (i == 0) ? R[f][1] : R[f][i+1] - R[f][i-1];
-      const double enclosed_mass = Menc[FS][i] + Menc[FB][i] + Menc[FD][i];
+      const double enclosed_mass = hydrostaticMass(f,i);
       P[f][i] = P[f][i+1] + enclosed_mass * (Rho[f][i] + Rho[f][i+1])
         * radial_span / (4.0 * pow(R[f][i], 2));
     }
@@ -496,12 +500,9 @@ void ThreeFluidSim::solveConductionLAPACKE() {
 //    Exact copy of Mathematica SolveRelaxation + notes (26)-(28)
 //    WE USE THIS CODE
 // ----------------------------------------------------------------
-void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
-  const int nrhs = 1;
-  const int ldb = param.N;
-
+void ThreeFluidSim::assembleRelaxation(const int f) {
   // Innermost (i=0)
-  double Mtot_i = Menc[FS][0] + Menc[FB][0] + Menc[FD][0];
+  double Mtot_i = hydrostaticMass(f,0);
   hydroD[0] = 8 * R[f][0] * (P[f][1] - P[f][0]) + 20 * pow(R[f][0], 4) *
     (P[f][0] / pow(R[f][0], 3) + P[f][1] / (pow(R[f][1], 3) - pow(R[f][0], 3))) +
     3 * Mtot_i * (R[f][1] - 0) * pow(R[f][0], 2) *
@@ -512,7 +513,7 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
 
   // Bulk zones
   for (int i = 1; i < param.N - 1; ++i) {
-    Mtot_i = Menc[FS][i] + Menc[FB][i] + Menc[FD][i];
+    Mtot_i = hydrostaticMass(f,i);
     hydroDL[i-1] = -Mtot_i * (Rho[f][i] + Rho[f][i+1]) -
       20 * pow(R[f][i], 2) * P[f][i] * pow(R[f][i-1], 2) / (pow(R[f][i], 3) - pow(R[f][i-1], 3)) +
       3 * Mtot_i * (R[f][i+1] - R[f][i-1]) * Rho[f][i] * pow(R[f][i-1], 2) / (pow(R[f][i], 3) - pow(R[f][i-1], 3));
@@ -529,14 +530,14 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
 
   // Outermost one-sided equation:
   // -P[N-1] / (R[N-1] - R[N-2])
-  //   + Mtot[N-1] * Rho[N-1] / R[N-1]^2 = 0.
+  //   + (Mtot[N-1]/R[N-1]^2 - tidal_q*R[N-1]) * Rho[N-1] = 0.
   // The Jacobian preserves the outer shell's mass and specific entropy.
   const int last = param.N - 1;
   const double inner_radius = R[f][last-1];
   const double outer_radius = R[f][last];
   const double outer_density = Rho[f][last];
   const double outer_pressure = P[f][last];
-  const double outer_mass = Menc[FS][last] + Menc[FB][last] + Menc[FD][last];
+  const double outer_mass = hydrostaticMass(f,last);
   const double outer_volume = pow(outer_radius, 3) - pow(inner_radius, 3);
   const double outer_width = outer_radius - inner_radius;
 
@@ -552,6 +553,21 @@ void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
     - 2 * outer_mass * outer_density / pow(outer_radius, 3);
   hydroB[last] = outer_pressure / outer_width
     - outer_mass * outer_density / pow(outer_radius, 2);
+
+  // The enclosed shell masses are frozen in this per-fluid linearization,
+  // but d(M-q*r^3)/dr=-3*q*r^2 must not be frozen.
+  if(param.tidal_q!=0) {
+    for(int i=0;i<last;++i) {
+      const double span=R[f][i+1]-(i?R[f][i-1]:0);
+      hydroD[i]-=3*param.tidal_q*pow(R[f][i],2)*(Rho[f][i]+Rho[f][i+1])*span;
+    }
+    hydroD[last]-=3*param.tidal_q*outer_density;
+  }
+}
+
+void ThreeFluidSim::solveRelaxationLAPACKE(const int f) {
+  const int nrhs=1, ldb=param.N;
+  assembleRelaxation(f);
 
   int info = LAPACKE_dgtsv(LAPACK_COL_MAJOR, param.N, nrhs,
 			   hydroDL.data(),
@@ -669,14 +685,14 @@ void ThreeFluidSim::realign() {
   // Recompute U from hydrostatic (AlignU style)
   for (int f = 0; f < NF; ++f) {
     const double outer_width = newR[param.N-1] - newR[param.N-2];
-    const double outer_mass = Menc[FS][param.N-1] + Menc[FB][param.N-1] + Menc[FD][param.N-1];
+    const double outer_mass = hydrostaticMass(f,param.N-1);
     P[f][param.N-1] = outer_mass * Rho[f][param.N-1] * outer_width / pow(newR[param.N-1], 2);
     for (int i = param.N-2; i >= 1; --i) {
       //double avgRho = (Rho[f][i] + Rho[f][i+1]) / 2.0;
-      P[f][i] = P[f][i+1] + (Menc[FS][i] + Menc[FB][i] + Menc[FD][i]) * (Rho[f][i] + Rho[f][i+1]) * (newR[i+1] - newR[i-1]) / (4.0 * pow(newR[i], 2));
+      P[f][i] = P[f][i+1] + hydrostaticMass(f,i) * (Rho[f][i] + Rho[f][i+1]) * (newR[i+1] - newR[i-1]) / (4.0 * pow(newR[i], 2));
       // newU[i] = 1.5 * pShell / Rho[f][i];
     }
-    P[f][0] = P[f][1] + (Menc[FS][0] + Menc[FB][0] + Menc[FD][0]) * (Rho[f][0] + Rho[f][1]) * newR[1] / (4.0 * pow(newR[0], 2));
+    P[f][0] = P[f][1] + hydrostaticMass(f,0) * (Rho[f][0] + Rho[f][1]) * newR[1] / (4.0 * pow(newR[0], 2));
 
     U[f] = 1.5 * (P[f].array() / Rho[f].array()).matrix();
   }

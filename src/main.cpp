@@ -2,6 +2,7 @@
 #include "observer.hpp"
 #include "statler_reproduction.hpp"
 #include "statler_observer.hpp"
+#include "ab_reproduction.hpp"
 #include <filesystem>
 
 void statler_reproduction(bool direct, const std::string& directory,
@@ -133,57 +134,37 @@ void tidal_bench_single(void){
   
 }
 
-void tidal_bench_AB(void){
-  const std::vector times_to_save({0.0, 3.0, 3.2, 3.24, 3.243});
-  {
-    ThreeFluidSim sim;
-    sim.initSolver(150);
-    sim.initCoeffsYiming();
-
-    // Manually set DM mass
-    sim.param.md = 0.1 * sim.param.ms;
-    // sim.param.md = sim.param.ms;
-    // sim.param.c2[FD] = 0.1 * sim.param.c2[FS];
-
-    sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
-
-    //LagrangianRadiiObserver observer({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-    ApproximateTimeObserver observer1(times_to_save);
-    LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-    ObserverPack observer(observer1, observer2);
-    
-    std::string dir = "output/baseline_AB/";
-    prepare_directory_for_output(dir);
-    sim.saveParams(dir);
-    sim.evolve(observer);
-    observer.save(dir);
+// AB Fig. 1 comparison through the canonical initializer and shared evolve().
+void tidal_bench_AB(bool tide,const std::string& directory,long long max_steps,
+                    double final_friction_time,int zones=150) {
+  if(directory.empty() || !std::isfinite(final_friction_time) || final_friction_time<0 || zones<3)
+    throw std::invalid_argument("invalid AB run settings");
+  const ABInitParam initial;
+  ThreeFluidSim sim;sim.param.N=zones;
+  const auto observing=initializeAB(sim,initial,tide);
+  sim.param.maxSteps=max_steps;
+  sim.param.maxTime=final_friction_time*observing.friction_time_myr/observing.time_unit_myr;
+  sim.param.Deltat=1e-4;
+  const std::string output=directory.back()=='/'?directory:directory+"/";
+  std::filesystem::create_directories(output+"initialization");
+  std::filesystem::create_directories(output+"observer");
+  sim.saveParams(output);
+  save_param_for_Mathematica(initial,output+"initialization/");
+  save_param_for_Mathematica(observing,output+"observer/");
+  LagrangianRadiiObserver radii(std::vector<double>(observing.mass_fractions.begin(),observing.mass_fractions.end()));
+  KeyValueObserver history;
+  ObserverPack observer(radii,history);
+  std::cout<<"AB tide="<<tide<<" q="<<sim.param.tidal_q<<" outer="<<sim.R[FS].tail(1)[0]
+           <<" hydro_time_myr="<<observing.time_unit_myr<<" friction_time_myr="<<observing.friction_time_myr<<std::endl;
+  try {sim.evolve(observer);}
+  catch(const std::exception& e) {
+    observer.save(output); // Accepted observations only, never the failed state.
+    std::cerr<<"AB stopped after "<<radii.t_list.back()*observing.time_unit_myr/observing.friction_time_myr
+             <<" friction times: "<<e.what()<<'\n';throw;
   }
-
-  {
-    ThreeFluidSim sim;
-    sim.initSolver(150);
-    sim.initCoeffsYiming();
-
-    // Manually set DM mass
-    sim.param.md = 0.1 * sim.param.ms;
-    sim.param.tidal_cutoff = 1;
-    sim.param.tidal_cutoff_factor = 10;
-    sim.param.tidal_radius = 2;
-
-    sim.initPlummerYiming(0.5, 1e-10, 1.0, 1.0, 1.0);
-
-    // LagrangianRadiiObserver observer({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-    ApproximateTimeObserver observer1({0.0, 1.0, 1.8, 1.89, 1.898});
-    LagrangianRadiiObserver observer2({0.01, 0.05, 0.1, 0.2, 0.5, 0.7});
-    ObserverPack observer(observer1, observer2);
-    
-    std::string dir = "output/with_tidal_AB/";
-    prepare_directory_for_output(dir);
-    sim.saveParams(dir);
-    sim.evolve(observer);
-    observer.save(dir);
-  }
-
+  observer.save(output);
+  std::cout<<"AB completed steps="<<sim.step<<" time_friction="
+           <<sim.totalTime*observing.time_unit_myr/observing.friction_time_myr<<std::endl;
 }
 
 void binary_formation(void){
@@ -286,6 +267,13 @@ void binary_formation(void){
 int main(int argc, char** argv) {
   if(argc>1) {
     try {
+      if(std::string(argv[1])=="ab") {
+        if(argc<4 || argc>7 || (std::string(argv[2])!="tidal" && std::string(argv[2])!="isolated"))
+          throw std::invalid_argument("usage: main ab isolated|tidal output_directory [max_steps] [final_time_friction] [zones]");
+        tidal_bench_AB(std::string(argv[2])=="tidal",argv[3],argc>4?std::stoll(argv[4]):1000000,
+                       argc>5?std::stod(argv[5]):4,argc>6?std::stoi(argv[6]):150);
+        return 0;
+      }
       if(argc<4 || argc>6 || std::string(argv[1])!="statler" ||
          (std::string(argv[2])!="direct" && std::string(argv[2])!="control"))
         throw std::invalid_argument("usage: main statler direct|control output_directory [max_steps] [final_time_trh]");
@@ -299,7 +287,7 @@ int main(int argc, char** argv) {
   }
   // one_fluid_split_in_two();
   // tidal_bench_single();
-  // tidal_bench_AB();
+  // Use the "ab isolated|tidal ..." command above for the AB comparison.
   binary_formation();
   
   return 0;

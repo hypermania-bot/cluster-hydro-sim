@@ -86,6 +86,16 @@ Evolution stops at the configured density, step or time limit;
 the final step is taken in full and may overshoot `maxTime`. Observers save
 the actual time, which both Python plotters use without endpoint clipping.
 
+### External tidal force and AB comparison
+
+The optional external spherical tide is enabled by `param.tidal_q > 0`
+(outward acceleration `q*r`; zero disables it). It is separate from explicit
+tidal mass removal. The AB runner is available as
+`./main-strict ab isolated|tidal output_directory [max_steps] [final_time_friction] [zones]`.
+See [the AB external-tide comparison](docs/ab-external-tide.md) for the
+galaxy assumptions, hydrostatic boundary restrictions, units, validation,
+and the Fig. 1 overlay command. The spherical model has no escape prescription.
+
 ### Conduction and heating linearization
 
 The conduction solve linearizes `sqrt(U)` and the binary-heating factor
