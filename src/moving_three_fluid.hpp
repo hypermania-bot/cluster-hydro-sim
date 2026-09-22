@@ -75,11 +75,10 @@ private:
     double heat=0, heat_left=0, heat_right=0;
   };
   std::vector<double> edges, centres, volumes, eta;
-  std::vector<double> reference, correction; // Frozen reference acceleration, not force density.
+  std::vector<double> correction; // Frozen reference acceleration, not force density.
   std::vector<Face> fluxes;
   std::vector<double> band, rhs, factor, increment, scale, next;
   std::vector<int> pivots;
-  bool balanced=false;
   Vec primitive(int i,int f) const;
   Vec storage(const Vec& x) const;
   Vec flux(const Vec& x) const;

@@ -124,6 +124,94 @@ void singleSplitAgreement() {
     check(std::abs(sims[0].value(i,FS,S::U)/sims[1].value(i,FS,S::U)-1)<1e-8,"single/split dispersion equivalence");
   }
 }
+void checkerboardDamping() {
+  // Subtract an unperturbed twin to exclude the physical open-boundary wave.
+  // No conduction is available to hide a defective acoustic coupling.
+  constexpr int n=64;constexpr double amplitude=1e-6;
+  for(double epsilon:{0.03,1e-9})for(int mode:{S::VEL,S::U}) {
+    std::vector<double> faces(n+1),initial(12*n,0);
+    for(int i=0;i<=n;++i)faces[i]=double(i)/n;
+    for(int i=0;i<n;++i)for(int f=0;f<3;++f) {
+      initial[S::index(i,f,S::RHO)]=1e-8;
+      initial[S::index(i,f,S::U)]=1;
+    }
+    const double sound=std::sqrt((10./9.)/epsilon);
+    S base;base.param.epsilon=epsilon;base.param.Deltat=10/(n*sound);
+    base.param.maxSteps=1;base.initialize(faces,initial,true);S perturbed=base;
+    for(int i=0;i<n;++i)for(int f=0;f<3;++f)
+      perturbed.state[S::index(i,f,mode)]+=amplitude*(i%2?1:-1)*(mode==S::VEL?sound:1);
+    auto obs=[](const S&){};base.evolve(obs);perturbed.evolve(obs);
+    double projection=0;
+    for(int i=n/4;i<3*n/4;++i) {
+      double delta=mode==S::VEL?
+        (perturbed.value(i,0,S::VEL)-base.value(i,0,S::VEL))/sound:
+        (perturbed.value(i,0,S::RHO)*perturbed.value(i,0,S::U)-
+          base.value(i,0,S::RHO)*base.value(i,0,S::U))/1e-8;
+      projection+=(i%2?1:-1)*delta;
+    }
+    const double ratio=std::abs(projection)/(n/2*amplitude);
+    std::cout<<"checkerboard epsilon="<<epsilon<<" field="<<mode<<" amplification="<<ratio<<'\n';
+    check(ratio<0.1,"undamped acoustic checkerboard");
+  }
+}
+void noConductionEvolution() {
+  auto s=setup(80);s.param.epsilon=1e-9;s.param.c1.fill(0);s.param.c2.fill(0);s.param.c4.fill(0);
+  s.param.maxTime=0.12;s.param.maxSteps=2000;
+  auto observer=[](const S& x) {check(x.energy_ledger_error<1e-10,"adiabatic energy ledger");};
+  s.evolve(observer);
+  check(s.totalTime>=s.param.maxTime,"no-conduction evolution stalled");
+}
+void rawMassTransport() {
+  for(double velocity:{-.2,.2}) {
+    auto s=setup(32);
+    for(int i=0;i<s.zones();++i)for(int f=0;f<NF;++f)s.state[S::index(i,f,S::VEL)]=velocity;
+    s.assembleStep();
+    for(int i=1;i+1<s.zones();++i)for(int f=0;f<NF;++f) {
+      // With constant velocity the advective LLF flux is exactly upwind.
+      // A frozen primitive offset would change this mass transport.
+      const double left=s.value(velocity>0?i-1:i,f,S::RHO)*velocity;
+      const double right=s.value(velocity>0?i:i+1,f,S::RHO)*velocity;
+      const double expected=-s.Deltat*(std::pow(s.faces()[i+1],2)*right-std::pow(s.faces()[i],2)*left);
+      check(std::abs(s.rightHandSide()[S::index(i,f,S::RHO)]-expected)<1e-12*std::abs(expected)+1e-24,
+            "reference offsets contaminated mass transport");
+    }
+  }
+}
+void contractionRegression(int zones,const std::string& directory) {
+  struct Initial {
+    long long zones=150;
+    double rho0=1,xi1=1e-10,xi2=1,zeta1=1,zeta2=.3;
+    double ms=1e-6,mb_over_ms=2,md_over_ms=1e-10;
+  } initial;
+  initial.zones=zones;check(zones>=16,"too few contraction cells");
+  check(!std::filesystem::exists(directory+"/snapshots.csv"),"contraction output exists");
+  ThreeFluidSim hydro;hydro.initSolver(zones);
+  hydro.param.ms=initial.ms;hydro.param.mb=initial.ms*initial.mb_over_ms;
+  hydro.param.md=initial.ms*initial.md_over_ms;
+  hydro.initPlummer(initial.rho0,initial.xi1,initial.xi2,initial.zeta1,initial.zeta2);
+  double total=0;for(int f=0;f<NF;++f)total+=hydro.Menc[f][zones-1];
+  hydro.initCoeffs(total/initial.ms,initial.mb_over_ms,initial.md_over_ms);
+  hydro.param.c1.fill(0);hydro.param.c4.fill(0);
+  S s;s.param.epsilon=std::pow(3*initial.ms*std::log(0.8*total/(hydro.param.ms+hydro.param.md)),2);
+  s.param.maxTime=5;s.param.maxSteps=20000;initializeMovingFromHydrostatic(s,hydro);
+  MovingComparisonObserver observer(directory,{});
+  std::filesystem::create_directories(directory+"/initialization");
+  std::filesystem::create_directories(directory+"/observer");
+  save_param_for_Mathematica(initial,directory+"/initialization/");
+  save_param_for_Mathematica(observer.param,directory+"/observer/");
+  save_param_for_Mathematica(s.param,directory+"/");
+  try{s.evolve(observer);}catch(...){observer.saveFinal();throw;}
+  observer.saveFinal();
+  std::cout<<"contraction zones="<<zones<<" time="<<s.totalTime<<" steps="<<s.step<<'\n';
+  check(s.totalTime>=s.param.maxTime,"contraction regression did not finish");
+  for(int f=0;f<NF;++f) {
+    int turns=0;
+    for(int i=1;i+1<s.zones();++i)
+      turns+=(s.value(i,f,S::VEL)-s.value(i-1,f,S::VEL))*
+        (s.value(i+1,f,S::VEL)-s.value(i,f,S::VEL))<0;
+    check(turns<=2,"checkerboard returned in contraction regression");
+  }
+}
 void benchmark() {
   for(int n:{50,100,200,400,800}) {
     auto s=setup(n);s.param.maxSteps=50;s.param.max_timestep=s.param.Deltat;
@@ -184,10 +272,11 @@ void auditHydro() {
   }
 }
 int main(int argc,char**argv) {try {
+  if(argc==4&&std::string(argv[1])=="--contraction") {contractionRegression(std::stoi(argv[2]),argv[3]);return 0;}
   if(argc==3&&std::string(argv[1])=="--export") {exportFixture(argv[2]);return 0;}
   if(argc==2&&std::string(argv[1])=="--audit-hydro") {auditHydro();return 0;}
   if(argc==2&&std::string(argv[1])=="--benchmark") {benchmark();return 0;}
   bandSolve();massLedger();equilibriumAndTide();splitSymmetry();failEarly();dilutedReference();tidalEvolution();
-  thermalAgreement();parameterRoundTrip();singleSplitAgreement();
+  thermalAgreement();parameterRoundTrip();singleSplitAgreement();checkerboardDamping();noConductionEvolution();rawMassTransport();
   std::cout<<"moving checks passed: band/dense, mass/heat export, equilibrium, q, split, fail-early\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

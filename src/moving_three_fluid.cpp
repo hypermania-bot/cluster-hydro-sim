@@ -59,7 +59,7 @@ MovingThreeFluidSim::Face MovingThreeFluidSim::boundaryFlux(const Vec& x) const 
 void MovingThreeFluidSim::initialize(const std::vector<double>& faces_in,
     const std::vector<double>& initial,bool reference_balance) {
   require(initial.size()%12==0&&initial.size()>=36,"invalid state size");
-  state=initial;edges=faces_in;balanced=reference_balance;
+  state=initial;edges=faces_in;
   const int n=zones(),size=12*n;
   require(edges.size()==static_cast<size_t>(n+1)&&edges[0]==0,"invalid faces");
   centres.resize(n);volumes.resize(n);eta.resize(n);
@@ -71,7 +71,7 @@ void MovingThreeFluidSim::initialize(const std::vector<double>& faces_in,
     for(int f=0;f<NF;++f) state[index(i,f,MASS)]=
       (i?value(i-1,f,MASS):0)+volumes[i]*value(i,f,RHO);
   }
-  reference=state;correction.assign(3*n,0);
+  correction.assign(3*n,0);
   fluxes.resize(3*(n+1));
   band.resize(LDAB*size);rhs.resize(size);factor.resize(LDAB*size);
   increment.resize(size);scale.resize(size);next.resize(size);pivots.resize(size);
@@ -81,7 +81,7 @@ void MovingThreeFluidSim::initialize(const std::vector<double>& faces_in,
   escaped_mass.fill(0);escaped_energy.fill(0);escaped_heat.fill(0);
   last_mass_outflow.fill(0);last_energy_outflow.fill(0);last_heat_outflow.fill(0);
   validate();
-  if(balanced) {
+  if(reference_balance) {
     for(int i=0;i<n;++i) {
       double m=0;for(int f=0;f<NF;++f)
         m+=eta[i]*value(i,f,MASS)+(i?(1-eta[i])*value(i-1,f,MASS):0);
@@ -90,8 +90,9 @@ void MovingThreeFluidSim::initialize(const std::vector<double>& faces_in,
       for(int f=0;f<NF;++f) {
         const Vec x=primitive(i,f);
         require(x[1]==0,"hydrostatic reference has nonzero velocity");
-        const Vec left=i?Vec((x+primitive(i-1,f))/2):x;
-        const Vec right=i+1<n?Vec((x+primitive(i+1,f))/2):x;
+        // Alternating pressure trace uses the cell to the right of a face.
+        const Vec left=x;
+        const Vec right=i+1<n?primitive(i+1,f):x;
         correction[3*i+f]=((ar*beta*right[0]*right[2]-al*beta*left[0]*left[2])
           /volumes[i]-(ar-al)/volumes[i]*beta*x[0]*x[2]+x[0]*g)/x[0];
       }
@@ -129,21 +130,31 @@ void MovingThreeFluidSim::buildFluxes() {
     for(int j=1;j<n;++j) {
       auto& face=fluxes[3*j+f];face=Face{};
       Vec l=primitive(j-1,f),r=primitive(j,f);
-      if(balanced) for(int k:{RHO,U}) {
-        double shift=(reference[index(j,f,k)]-reference[index(j-1,f,k)])/2;
-        // Freeze an admissible reference offset for this assembly. The
-        // reference cannot subtract more material/heat than remains locally.
-        shift=std::clamp(shift,-0.9*l[k],0.9*r[k]);
-        l[k]+=shift;r[k]-=shift;
-      }
+      // No frozen primitive reconstruction: advective diffusion vanishes
+      // at rest, and the pressure/source quadrature is balanced separately.
       if(!(l[0]>0&&r[0]>0&&l[2]>0&&r[2]>0))
-        require(false,"reference reconstruction lost positivity at face "+std::to_string(j));
+        require(false,"nonpositive primitive state at face "+std::to_string(j));
       // Advective LLF dissipation. Pressure and enthalpy work stay in the
       // implicit acoustic flux, not in the mass/thermal numerical viscosity.
       const double speed=std::max(std::abs(l[1]),std::abs(r[1]));
-      face.flux=(flux(l)+flux(r)-speed*(storage(r)-storage(l)))/2;
-      face.left=(fluxJacobian(l)+speed*storageJacobian(l))/2;
-      face.right=(fluxJacobian(r)-speed*storageJacobian(r))/2;
+      // Alternating acoustic traces: left velocity and right pressure.
+      // Their divergence/gradient are an adjoint pair rather than two
+      // centred operators with an odd/even null space.
+      const double density=(l[0]+r[0])/2,energy=(l[2]+r[2])/2;
+      const double velocity=l[1],pressure=beta*r[0]*r[2];
+      face.flux=Vec(density*velocity,density*velocity*velocity+pressure/param.epsilon,
+        density*velocity*(energy+param.epsilon*velocity*velocity/2)+pressure*velocity);
+      face.left<<velocity/2,density,0,
+        velocity*velocity/2,2*density*velocity,0,
+        velocity*(energy+param.epsilon*velocity*velocity/2)/2,
+        density*(energy+1.5*param.epsilon*velocity*velocity)+pressure,density*velocity/2;
+      face.right<<velocity/2,0,0,
+        velocity*velocity/2+beta*r[2]/param.epsilon,0,beta*r[0]/param.epsilon,
+        velocity*(energy+param.epsilon*velocity*velocity/2)/2+beta*r[2]*velocity,
+        0,density*velocity/2+beta*r[0]*velocity;
+      face.flux-=speed*(storage(r)-storage(l))/2;
+      face.left+=speed*storageJacobian(l)/2;
+      face.right-=speed*storageJacobian(r)/2;
       // Frozen velocity viscosity damps the collocated acoustic mode without
       // diffusing hydrostatic density/entropy at the sound speed. Include its
       // mechanical energy flux; diffusing rho*v at acoustic speed instead

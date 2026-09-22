@@ -1,10 +1,10 @@
 # MovingThreeFluidSim: implementation and validation status
 
 This is an experimental radial-fluid solver, not a replacement for the
-hydrostatic solver. The single-fluid comparisons are useful, but the
-unequal-mass and very dilute-component long runs do **not** yet pass the
-requested agreement/stability criterion. Do not use their late-time output
-as a validated prediction. No binary-formation or explicit stripping sink
+hydrostatic solver. The alternating acoustic flux removes the observed
+checkerboard failure in the tested single, split, canonical and concentrated-DM
+runs. Physical convergence and unequal-mass agreement remain separate,
+incomplete validation requirements. No binary-formation or explicit stripping sink
 is enabled in this class; the initializer rejects those configurations.
 
 ## State and step
@@ -57,22 +57,23 @@ velocity change in thermal-speed units. Final-step overshoot is allowed.
 1. Scalar sound-speed Rusanov viscosity nearly froze the slow contraction.
    The current test scheme uses advective mass/energy diffusion plus a
    frozen velocity viscosity in momentum, including its mechanical energy
-   flux. This is a low-Mach modification, not a demonstrated all-speed,
-   positivity-preserving flux. Trace-component oscillations remain a
-   long-run acceptance failure.
+   flux. Centred acoustic coupling still produced checkerboarding. It is now
+   replaced by left-velocity/right-pressure alternating traces, including
+   matching pressure work. The resulting gradient and divergence are an
+   adjoint pair without the centred operator's odd/even null space. This
+   is first-order accurate, not a proven nonlinear positivity-preserving flux.
 2. A frozen reference force density omitted mechanical work and drove
    exterior cooling to zero. The reference correction is now a frozen
    acceleration, with its density-dependent force and corresponding work.
    It balances the supplied q=0 reference but never cancels the q*r force.
-3. Fixed reconstruction offsets could subtract more density than remained
-   after depletion. Their magnitude is now limited before each assembly;
-   the evolved state itself is not clipped.
+3. Frozen primitive reconstruction also corrupted exterior thermal transport
+   in the alternating-flux trial. It has been removed completely: advective
+   diffusion vanishes at rest and needs no such correction. Reference balance
+   now uses the actual right-pressure trace in the source quadrature.
 4. Hitting a comparison's safety step limit is reported as failure to reach
    its requested time, not as a completed comparison.
 
-The fixed-reference reconstruction is reliable only near an admissible
-reference neighbourhood. Robust treatment of strongly depleted/hot trace
-fluids and true empty cells needs additional work. Preserving the initial
+Robust treatment of true empty cells still needs additional work. Preserving the initial
 equilibrium and matching a symbolic Jacobian do not establish that property.
 
 ## Reproducing checks and plots
@@ -129,7 +130,7 @@ Mathematica audit compares every assembled entry and RHS in a five-cell
 fixture, including all three outer Riemann branches. These local checks
 do not substitute for the long-run comparison gate above.
 
-## Current comparison results
+## Historical centred-flux results (17285f4)
 
 On upstream baseline `49dd74e`, the 150-cell single and equal-split cases
 reach code time 5. Their central density agrees with the hydrostatic solver
@@ -162,3 +163,45 @@ interpolates density and rebuilds pressure/energy. The independent diagnostic
 random-energy and entropy-proxy changes, including a nonzero boundary
 modification even at zero timestep. This does not explain away the new
 solver's instability; the two issues need separate convergence tests.
+
+## Alternating-flux checks (22 September 2026)
+
+The new single and split runs reach t=5 in 5537 steps; canonical 500/1000-cell
+runs finish in 7237/7317 steps, and the AB-like run reaches t=2.8. The single
+fluid's core second-difference velocity estimator falls from 0.119 to
+1.92e-4. At 500/1000 cells the final stellar estimators are 1.33e-5/3.05e-6;
+the remaining signal includes smooth curvature, not an alternating mode.
+All components are inspected, not only those above a mass-fraction cutoff.
+
+The heating-off concentrated-DM regression (rho0=1, xi2=1, zeta2=0.3,
+ms=1e-6, md/ms=1e-10, other inputs saved by its initializer) finishes t=5
+at 150 and 300 cells. Its estimator drops from about 0.53/1.26 in the old
+scan to 1.93e-4/3.05e-5. Central densities still depend on resolution:
+removing the instability does not establish converged core collapse.
+The coarse unequal-mass comparison also still differs from the hydrostatic
+solver. At 1000 cells the dominant stellar density and dispersion in the
+canonical comparison agree within 10% over the tested interval.
+
+New short tests perturb pressure and velocity separately with conduction
+off, at epsilon=0.03 and 1e-9. At acoustic Courant number 10, their measured
+one-step alternating amplitudes are below 0.061 of the initial amplitude.
+A separate no-conduction/no-heating evolution reaches t=0.12. Tests retain
+the mass and gas-energy/work ledgers. No state floor, retry or velocity
+filter is used. The outer vacuum and thermal boundary formulas are unchanged.
+
+Example reproduction commands (fresh directories, single BLAS/OMP thread):
+
+```sh
+./main-strict moving-comparison output/new_single 0 5
+./main-strict moving-comparison output/new_canonical 3 5 0 0.001 500 16000
+./main-strict moving-comparison output/new_fine 3 5 0 0.001 1000 16000
+./check_moving --contraction 150 output/new_contraction150
+./check_moving --contraction 300 output/new_contraction300
+python3 script/plot_moving_oscillation_check.py output/old_single/moving output/new_single/moving output/velocity_comparison
+```
+
+The last command requires saved old (17285f4) output. Its JSON/PDF compare
+raw signed velocities at common time without extrapolation. Velocity is in
+r0/t0 units; the physical ratio to dispersion is sqrt(epsilon)*v/sqrt(2u/3),
+not v/sqrt(2u/3). The estimator is grid-dependent and must not be presented
+as a fixed-wavenumber spectral convergence test.
