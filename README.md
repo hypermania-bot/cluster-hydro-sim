@@ -17,7 +17,10 @@ The current executable is a research prototype rather than a general-purpose
 simulation package. In particular, experiment selection and parameters are
 set in `src/main.cpp`; the Statler example additionally has a command-line
 selector. Tests cover hydrostatic projection, the shared Statler evolution
-and output readers. The mode-2
+and output readers. An experimental fixed-grid moving-fluid solver advances
+continuity, momentum, random-plus-bulk energy and enclosed mass in one
+banded solve; its derivation and validation status are documented in
+[`doc/moving_three_fluid.md`](doc/moving_three_fluid.md). The mode-2
 binary-formation example has also been audited operator by operator; formation
 is conservative to roundoff, but the complete trajectory is currently
 dominated by nonconservative grid realignment.
@@ -132,10 +135,10 @@ The implementation and notation follow:
 ```text
 .
 |-- Makefile             GCC/C++20 release build
-|-- docs/                numerical validation notes
+|-- doc/                 numerical validation and derivation notes
 |-- external/            pinned Eigen and Boost.PFR submodules
 |-- plot_packed.nb       Mathematica import and plotting notebook
-|-- script/              Python analysis and plotting utilities
+|-- script/              Python and Mathematica derivation/analysis utilities
 |-- test/                standalone numerical and plotting checks
 `-- src/
     |-- main.cpp         experiment definitions and active entry point
@@ -144,6 +147,13 @@ The implementation and notation follow:
     |-- param.hpp        parameter serialization for Mathematica
     `-- utility.hpp      output-directory and timing helpers
 ```
+
+The Mathematica source for the moving-fluid matrix is under
+`script/mathematica/`. With Mathematica installed, `make
+check-moving-symbolic` regenerates its coefficient tables, compares every
+assembled C++ matrix/RHS entry against an independent symbolic evaluation,
+and reruns the bandwidth audit. Generated tables and run output are not
+tracked.
 
 ## Requirements
 

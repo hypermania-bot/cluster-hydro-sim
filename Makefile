@@ -52,7 +52,7 @@ LDFLAGS += $(foreach librarydir,$(program_LIBRARY_DIRS),-L$(librarydir))
 LDLIBS += $(foreach library,$(program_LIBRARIES),-l$(library))
 
 
-.PHONY: all check clean distclean
+.PHONY: all check check-moving-symbolic clean distclean
 
 all: $(program_NAME)
 
@@ -65,6 +65,13 @@ check: $(check_NAME) check_statler check_examples check_moving
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_examples
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_moving
 	python3 -m unittest discover -s test -p 'test_*.py'
+
+check-moving-symbolic: check_moving
+	wolframscript -code 'Get["script/mathematica/moving_three_fluid_compiler.wl"]; If[TrueQ[MovingThreeFluid`allChecksPassed],Exit[0],Exit[1]]'
+	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_moving --export output/moving_matrix_fixture
+	wolframscript -file script/mathematica/check_moving_cpp.wls
+	wolframscript -file script/mathematica/export_moving_band_pattern.wls
+	python3 script/mathematica/check_moving_bandwidth.py
 
 check_statler: test/check_statler.o $(solver_check_OBJS)
 	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
