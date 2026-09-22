@@ -2,6 +2,7 @@
 #include "observer.hpp"
 #include "statler_reproduction.hpp"
 #include "statler_observer.hpp"
+#include "moving_comparison.hpp"
 #include <filesystem>
 
 void statler_reproduction(bool direct, const std::string& directory,
@@ -286,6 +287,14 @@ void binary_formation(void){
 int main(int argc, char** argv) {
   if(argc>1) {
     try {
+      if(std::string(argv[1])=="moving-comparison") {
+        if(argc<5||argc>9)throw std::invalid_argument(
+          "usage: main moving-comparison output_directory sample(0..3) final_time [epsilon] [max_dt] [canonical_zones] [max_steps]");
+        runMovingComparison(argv[2],std::stoi(argv[3]),std::stod(argv[4]),
+                            argc>5?std::stod(argv[5]):0,argc>6?std::stod(argv[6]):1e-3,
+                            argc>7?std::stoi(argv[7]):500,argc>8?std::stoll(argv[8]):20000);
+        return 0;
+      }
       if(argc<4 || argc>6 || std::string(argv[1])!="statler" ||
          (std::string(argv[2])!="direct" && std::string(argv[2])!="control"))
         throw std::invalid_argument("usage: main statler direct|control output_directory [max_steps] [final_time_trh]");
