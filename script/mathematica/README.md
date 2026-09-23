@@ -25,7 +25,7 @@ The source regenerates:
 - `moving_three_fluid_storage_entries.txt`: every nonzero entry and RHS in that order.
 
 It creates the companion notebook only if missing, preserving later notebook
-annotations. The TeX derivation is `doc/moving_three_fluid_scheme.tex`.
+annotations. The TeX derivation is `docs/moving_three_fluid_scheme.tex`.
 
 ## Reading the tables
 
