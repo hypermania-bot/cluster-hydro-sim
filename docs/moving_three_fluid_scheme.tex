@@ -1,0 +1,723 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=0.8in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,array,graphicx}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+\setlength{\emergencystretch}{2em}
+\title{MovingThreeFluidSim: a coupled banded fluid step}
+\author{Mathematica derivation and C++ implementation}
+\date{22 September 2026}
+\begin{document}
+\maketitle
+
+\section{Scope and choices}
+The new class is \texttt{MovingThreeFluidSim}. Its files are
+\texttt{moving\_\allowbreak three\_\allowbreak fluid.hpp} and
+\texttt{moving\_\allowbreak three\_\allowbreak fluid.cpp}, leaving \texttt{ThreeFluidSim}
+unchanged. The starting code is upstream revision \texttt{49dd74e}.
+The alternating-flux implementation is Code revision \texttt{af639ef}.
+The previous tidal-force PR has been closed. This note derives one
+linearly implicit, first-order time step for three isotropic fluids,
+including self-gravity, an optional fixed outward acceleration $qr$,
+conduction, intercomponent thermal exchange and binary heating.
+Mass conversion by binary formation and an imposed stripping sink are
+off in this first derivation; they are not silently counted as outflow.
+The retained $c_1,c_4$ terms use the existing small-relative-streaming
+thermal closure. Intercomponent mean-velocity drag and its compensating
+heat are not derived here; appreciable relative bulk motion would require
+that additional local physical closure.
+
+The nonlinear dispersions use exactly the first-order expansions in
+\texttt{conduction\_compiler.wl}. The conservative spatial fluxes are
+not coefficient-identical to the old nonconservative log-grid stencil:
+this deliberate change is needed to make boundary budgets telescope.
+We also require an upwind treatment of moving fluid, absent from the
+hydrostatic solver. The full state uses the requested primitive-variable
+ordering. One banded solve determines a primitive predictor; a local
+algebraic recovery preserves the conservative momentum/energy update.
+There is no nonlinear iteration, timestep retry, or hydrostatic projection
+inside the proposed step.
+
+\paragraph{Geometry.}
+For the first implementation use a fixed common radial mesh, which can
+be logarithmic away from the centre. ``Moving'' denotes radial fluid
+motion. The tidal radius moves diagnostically; it is not the last grid
+face. A dynamically moving mesh would require geometry state or an
+explicit mesh law in addition to the requested $12N$ fluid entries.
+It is not hidden in those entries. Fixed geometry is the minimal closed
+choice for this derivation and allows material to leave the outer shell.
+
+\paragraph{Thermal boundary choice.}
+``Freely flowing heat'' is not a unique boundary condition. We choose an
+absorbing Robin condition on $\sqrt u$, specified in
+Sec.~\ref{sec:outer}, rather than the insulating condition $u_r=0$.
+Its extrapolation length is an explicit boundary-model choice, not
+something derived from $q$. This is the approved baseline boundary model.
+
+\section{Equations, units, and state}
+Use fixed units $M_0=4\pi\rho_0r_0^3$, $u_0=4\pi G\rho_0r_0^2$,
+$P_0=\rho_0u_0$, $L_0=M_0u_0/t_0$, and the existing relaxation-time
+unit $t_0$. In all equations below,
+\begin{equation}
+ r=\frac{r_{\rm phys}}{r_0},\quad t=\frac{t_{\rm phys}}{t_0},\quad
+ v=\frac{v_{\rm phys}t_0}{r_0},\quad
+ \epsilon=\frac{r_0^2}{u_0t_0^2},\quad
+ q=\frac{q_{\rm phys}}{4\pi G\rho_0}.
+\end{equation}
+Density, enclosed mass and specific energy are divided by
+$\rho_0,M_0,u_0$ respectively. Keep $\gamma=5/3$ and
+$\beta=\gamma-1=2/3$, matching the remote code; no new binary adiabatic
+index is introduced. For each fluid $f\in\{s,b,d\}$,
+\begin{align}
+ P_f&=\beta\rho_fu_f,&
+ M_f'&=r^2\rho_f,&
+ g&=\frac{\sum_fM_f}{r^2}-qr,\\
+ \partial_t\rho_f+\frac{1}{r^2}\partial_r(r^2\rho_fv_f)&=0,&
+ \epsilon(\partial_t+v_f\partial_r)v_f&=-\frac{\partial_rP_f}{\rho_f}-g,
+ \label{eq:pde}\\
+ (\partial_t+v_f\partial_r)u_f+\frac{P_f}{\rho_f r^2}
+ \partial_r(r^2v_f)&=-\frac{\partial_rL_f}{\rho_f r^2}+Q_f.
+\end{align}
+The physical one-dimensional dispersion satisfies
+$\sigma_f^2/u_0=2u_f/3$. The sound speed in radius-per-code-time units is
+$c_f=\sqrt{\gamma\beta u_f/\epsilon}$. Omitting $\epsilon$ in radial
+momentum or bulk kinetic energy would change the time normalization.
+
+Faces are $R_0=0<R_1<\cdots<R_N=B$, cell centres are
+$r_i=(R_i+R_{i+1})/2>0$, and
+\begin{equation}
+ V_i=\frac{R_{i+1}^3-R_i^3}{3},\quad A_i=R_i^2,\quad
+ \eta_i=\frac{r_i^3-R_i^3}{R_{i+1}^3-R_i^3},\quad
+ a_i=\frac{A_{i+1}-A_i}{V_i}.
+\end{equation}
+Use cell-mean $\rho_{f,i}$ and outer-face enclosed mass $M_{f,i}=M_f(R_{i+1})$.
+Thus $M$ and the other entries in one block are staggered geometrically,
+though contiguous in memory. The exact discrete mass definition and
+centre gravity approximation are
+\begin{align}
+ M_{f,i}-M_{f,i-1}&=V_i\rho_{f,i},\qquad M_{f,-1}=0,
+ \label{eq:massconstraint}\\
+ \overline M_i&=\eta_i\sum_fM_{f,i}+(1-\eta_i)\sum_fM_{f,i-1},&
+ g_i&=\overline M_i/r_i^2-qr_i.
+\end{align}
+This mass interpolation is exact within a uniform-density cell.
+The implemented, bandwidth-optimized vector in each cell is
+\begin{equation}
+ X_i=(u_s,v_s,\rho_s,u_b,v_b,\rho_b,u_d,v_d,\rho_d,M_s,M_b,M_d)^T.
+ \label{eq:ordering}
+\end{equation}
+For $f=0,1,2$ and logical field $k=0,1,2,3\leftrightarrow(\rho,v,u,M)$,
+the scalar index is $12i+3f+2-k$ for $k<3$, and $12i+9+f$ for $k=3$.
+Equation rows use the same permutation: energy, momentum, continuity
+for each species, then the three enclosed-mass constraints. The RHS
+must be permuted with the rows. Formulas below retain logical
+$(\rho,v,u)$ ordering within each displayed $3\times3$ block for readability;
+their placement uses the index map above.
+The redundant enclosed masses are constrained unknowns, not separate
+mass reservoirs. Keeping Eq.~\eqref{eq:massconstraint} in the banded
+system avoids a dense all-inner-cells gravitational Jacobian.
+
+\section{Conservative variables and explicit Jacobians}
+For $x=(\rho,v,u)^T$, define
+\begin{equation}
+ W(x)=\begin{pmatrix}\rho\\\rho v\\\rho(u+\epsilon v^2/2)\end{pmatrix},\qquad
+ F(x)=\begin{pmatrix}\rho v\\\rho v^2+\beta\rho u/\epsilon\\
+ \rho v(\gamma u+\epsilon v^2/2)\end{pmatrix}.
+\end{equation}
+The three rows are continuity, radial momentum, and random-plus-bulk
+energy. Mathematica differentiates these to give
+\begin{align}
+ T=\frac{\partial W}{\partial x}
+ &=\begin{pmatrix}1&0&0\\v&\rho&0\\
+ u+\epsilon v^2/2&\epsilon\rho v&\rho\end{pmatrix},
+ \label{eq:timejac}\\
+ H=\frac{\partial F}{\partial x}
+ &=\begin{pmatrix}
+ v&\rho&0\\
+ v^2+\beta u/\epsilon&2\rho v&\beta\rho/\epsilon\\
+ v(\gamma u+\epsilon v^2/2)&\rho(\gamma u+3\epsilon v^2/2)&\gamma\rho v
+ \end{pmatrix}.
+ \label{eq:fluxjac}
+\end{align}
+All unstarred coefficients below are evaluated at time $n$.
+With $\delta x=x^*-x^n$, use
+$W^*=W^n+T\delta x$ and $F^*=F^n+H\delta x$.
+This is a single Taylor-linearized backward step, not an exact solution
+of nonlinear backward Euler.
+
+\subsection{Alternating acoustic flux and hydrostatic balance}
+The former centred flux had a checkerboard null mode: a cell-alternating
+pressure is invisible to its centred gradient. Velocity viscosity alone
+does not remove that defective coupling. Heating-off scans also excite
+the mode during contraction; it is not a dilute-fluid or heating-specific
+effect. We replace the centred acoustic traces, not the fluid equations.
+
+Let $x_L=x_i$, $x_R=x_{i+1}$ be the \emph{raw} primitive states,
+$\bar\rho=(\rho_L+\rho_R)/2$, $\bar u=(u_L+u_R)/2$, $V=v_L$,
+and $p_R=\beta\rho_Ru_R$. Define the consistent alternating flux
+\begin{equation}
+ F^{\rm alt}(x_L,x_R)=
+ \begin{pmatrix}
+ \bar\rho V\\
+ \bar\rho V^2+p_R/\epsilon\\
+ \bar\rho V(\bar u+\epsilon V^2/2)+p_RV
+ \end{pmatrix}.
+ \label{eq:alternating}
+\end{equation}
+The pressure work uses the \emph{same} pressure and velocity traces.
+The choice of left velocity and right pressure is fixed, not switched
+according to the sign of the velocity. Advective stabilization is retained
+separately. The flux equals $F(x)$ when both states equal $x$; its spatial
+accuracy is first order. This is an alternating-trace finite-volume
+scheme, not a change of the stored velocity to a staggered-grid variable.
+
+Its primitive Jacobians, including every nonzero entry, are
+\begin{align}
+ H^{\rm alt}_L&=
+ \begin{pmatrix}
+ V/2&\bar\rho&0\\
+ V^2/2&2\bar\rho V&0\\
+ V(\bar u+\epsilon V^2/2)/2&
+ \bar\rho(\bar u+3\epsilon V^2/2)+p_R&\bar\rho V/2
+ \end{pmatrix},\\
+ H^{\rm alt}_R&=
+ \begin{pmatrix}
+ V/2&0&0\\
+ V^2/2+\beta u_R/\epsilon&0&\beta\rho_R/\epsilon\\
+ V(\bar u+\epsilon V^2/2)/2+\beta u_RV&0&
+ \bar\rho V/2+\beta\rho_RV
+ \end{pmatrix}.
+\end{align}
+Freeze $\lambda_0=\max(|v_L|,|v_R|)$,
+$\lambda_a=\max(|v_L|+c_L,|v_R|+c_R)$ and
+$\kappa=(\lambda_a-\lambda_0)\bar\rho$. The numerical flux and its
+complete affine expansion are
+\begin{align}
+ \widehat F^n&=F^{\rm alt}
+ -\frac{\lambda_0}{2}(W_R-W_L)
+ -\frac{\kappa}{2}
+ \begin{pmatrix}0\\v_R-v_L\\\epsilon(v_R^2-v_L^2)/2\end{pmatrix},\\
+ J_L&=H^{\rm alt}_L+\frac{\lambda_0}{2}T_L+\frac{\kappa}{2}K(v_L),&
+ J_R&=H^{\rm alt}_R-\frac{\lambda_0}{2}T_R-\frac{\kappa}{2}K(v_R),\\
+ \widehat F^*&=\widehat F^n+J_L\delta x_L+J_R\delta x_R,
+ \label{eq:faceflux}
+\end{align}
+where $K(v)=\left(\begin{smallmatrix}0&0&0\\0&1&0\\0&\epsilon v&0\end{smallmatrix}\right)$.
+The energy component includes the work of the velocity stress.
+These $J_L,J_R$ replace the former centred-flux Jacobians in every block
+and RHS below. The three-cell stencil, storage ordering, half-bandwidths
+$(13,14)$ and $O(N)$ cost are unchanged.
+
+\paragraph{Why the alternating mode is damped.}
+For a uniform static background on a uniform periodic grid, without
+gravity or heating, the linear acoustic equations become
+\begin{align}
+ \partial_t\delta\rho&=-\rho_0D_-\delta v,&
+ \partial_t\delta p&=-\gamma p_0D_-\delta v,\\
+ \partial_t\delta v&=-\frac{D_+\delta p}{\epsilon\rho_0}
+                  +\nu\Delta_h\delta v,&
+ \nu&=\frac{ch}{2},\qquad c^2=\frac{\gamma p_0}{\epsilon\rho_0}.
+\end{align}
+Here $D_-v_i=(v_i-v_{i-1})/h$ and $D_+p_i=(p_{i+1}-p_i)/h$.
+They are negative adjoints and satisfy $D_-D_+=\Delta_h$, whose
+symbol at the checkerboard wavenumber is $-4/h^2$, not zero.
+The quadratic acoustic energy
+$\sum_i h[\epsilon\rho_0(\delta v_i)^2/2+
+(\delta p_i)^2/(2\gamma p_0)]$ is nonincreasing. Backward Euler adds
+temporal damping. For the checkerboard mode, with $z=c\Delta t/h$,
+the two amplification eigenvalues have modulus
+\begin{equation}
+ |G_\pi|=(1+2z+4z^2)^{-1/2}<1\qquad(z>0).
+\end{equation}
+Both acoustic variables therefore decay; the large-step limit is zero.
+This is not a promise that a finite step annihilates every perturbation,
+nor a nonlinear stability theorem for a stratified, self-gravitating,
+open domain. Entropy perturbations and resolved physical waves must not
+be indiscriminately filtered away.
+
+\paragraph{Reference balance without reconstructed primitive states.}
+No frozen density/energy offsets are applied to face states. They are
+unnecessary for equilibrium: the advective dissipation vanishes when
+$v=0$, and the velocity stress vanishes as well. Retaining those offsets
+in an expanding exterior can corrupt its thermal transport.
+
+For a supplied $q=0$ reference, use $P^e_{i+1/2}=P^e_{i+1}$ and
+$P^e_{i-1/2}=P^e_i$ at interior faces, matching the new right-pressure
+trace. Define
+\begin{equation}
+ C^e_{f,i}=\frac{A_{i+1}P^e_{f,i+1/2}-A_iP^e_{f,i-1/2}}{\epsilon V_i}
+ -\frac{a_iP^e_{f,i}-\rho^e_{f,i}g_i^e}{\epsilon},
+ \qquad a^e_{f,i}=\frac{\epsilon C^e_{f,i}}{\rho^e_{f,i}}.
+ \label{eq:wb}
+\end{equation}
+The fixed acceleration $a^e$ enters momentum as $\rho_fa^e/\epsilon$
+and energy as $\rho_fv_fa^e$. It vanishes as a force density when the
+fluid empties. At the first face the area is zero. At the last face the
+reference quadrature uses $P^e_{N-1}$, but the actual boundary remains
+the vacuum flux below: a truncated positive-pressure sphere is not a
+global equilibrium against vacuum. The interior reference is balanced
+when thermal sources vanish. The physical $qr$ force is never absorbed
+in $a^e$. With no reference, set $a^e=0$. The correction is numerical
+quadrature, not an additional physical force, and must converge away.
+
+\section{Gravity, conduction and the existing local sources}
+\subsection{Dynamical cell source}
+Apart from thermal sources, the finite-volume source is
+\begin{equation}
+ S_f^{\rm dyn}=\begin{pmatrix}
+ 0\\(a_i\beta\rho_fu_f-\rho_f\widetilde g_{f,i})/\epsilon\\-\rho_fv_f\widetilde g_{f,i}
+ \end{pmatrix}.
+\end{equation}
+Here $\widetilde g_{f,i}=g_i-a^e_{f,i}$. The geometric pressure term is essential in conservative spherical
+momentum. Its quadrature integrates constant pressure exactly.
+The primitive and enclosed-mass derivatives are, explicitly,
+\begin{align}
+ D_f=\frac{\partial S_f^{\rm dyn}}{\partial x_f}
+ &=\begin{pmatrix}0&0&0\\
+ (a_i\beta u_f-\widetilde g_{f,i})/\epsilon&0&a_i\beta\rho_f/\epsilon\\
+ -v_f\widetilde g_{f,i}&-\rho_f\widetilde g_{f,i}&0\end{pmatrix},\\
+ G_f^{(0)}=\frac{\partial S_f^{\rm dyn}}{\partial M_{g,i}}
+ &=\begin{pmatrix}0\\-\rho_f\eta_i/(\epsilon r_i^2)\\-\rho_fv_f\eta_i/r_i^2\end{pmatrix},&
+ G_f^{(-)}=\frac{\partial S_f^{\rm dyn}}{\partial M_{g,i-1}}
+ &=\begin{pmatrix}0\\-\rho_f(1-\eta_i)/(\epsilon r_i^2)\\-\rho_fv_f(1-\eta_i)/r_i^2\end{pmatrix}.
+ \label{eq:sourcejac}
+\end{align}
+The two $G$ vectors apply to every species $g$. At the centre set
+$G_f^{(-)}=0$. There is no admissibility condition $\overline M_i>qr_i^3$:
+positive and negative net acceleration are both allowed.
+
+\subsection{Dispersion expansion and conservative conduction}
+Exactly as in the reference Mathematica calculation,
+\begin{align}
+ z_f(u_f^*)&=\sqrt{u_f^n}+\frac{\delta u_f}{2\sqrt{u_f^n}}
+ =\frac{\sqrt{u_f^n}}2+\frac{u_f^*}{2\sqrt{u_f^n}},\\
+ w_f(u_f^*)&=\frac1{\sqrt{u_f^n}}-
+ \frac{\delta u_f}{2(u_f^n)^{3/2}}
+ =\frac3{2\sqrt{u_f^n}}-\frac{u_f^*}{2(u_f^n)^{3/2}}.
+ \label{eq:dispersion}
+\end{align}
+Freeze face conductivity at time $n$. With harmonic face density and
+distance $d=r_{i+1}-r_i$,
+\begin{equation}
+ k_{f,i+1/2}=\frac{c_{2,f}A_{i+1}}{d}
+      \frac{2\rho_{f,i}^n\rho_{f,i+1}^n}{\rho_{f,i}^n+\rho_{f,i+1}^n},\qquad
+ L_{f,i+1/2}^*=-k_{f,i+1/2}(z_{f,i+1}-z_{f,i}).
+ \label{eq:conductiveflux}
+\end{equation}
+This discretizes the same continuum flux
+$L_f=-c_{2,f}r^2\rho_f\partial_r\sqrt{u_f}$ as the existing conduction
+law. Adjacent cells use the same luminosity, with opposite signs.
+All cells, including the first and last, retain their energy equations
+and local sources. Neither boundary is a fixed-$u$ reservoir row.
+
+\subsection{Exchange and binary heating}
+Use the reference particle masses $m_f$ and define frozen
+\begin{equation}
+ a_{fg}=\frac{c_{1,fg}\rho_g^n}
+ {m_s(u_f^n+u_g^n)^{3/2}},\quad g\ne f,\qquad
+ b_{fg}=\rho_f^n c_{4,fg}\rho_g^n.
+\end{equation}
+The energy-density source, with the old density factors frozen just as
+in the existing conduction step, is
+\begin{equation}
+ Q_f^{E,*}=-\rho_f^n\sum_{g\ne f}a_{fg}(m_fu_f^*-m_gu_g^*)
+       +\sum_{(g,d)\in\mathcal H_f}b_{fg}w_d(u_d^*),
+\end{equation}
+where
+$\mathcal H_s=\{(b,s)\}$,
+$\mathcal H_b=\{(s,s),(b,b),(d,d)\}$, and
+$\mathcal H_d=\{(b,d)\}$.
+Writing $Q_f^{E,*}=Q_f^{E,n}+\sum_g B_{fg}\delta u_g$, every local
+temperature coefficient is
+\begin{equation}
+ \boxed{B_{fg}=-\delta_{fg}\rho_f^nm_f\sum_{h\ne f}a_{fh}
+ +(1-\delta_{fg})\rho_f^na_{fg}m_g
+ -\sum_{(h,d)\in\mathcal H_f}\frac{b_{fh}}{2(u_d^n)^{3/2}}\delta_{dg}.}
+ \label{eq:thermaljac}
+\end{equation}
+For $g=f$ the second term is defined as zero. The old source is the
+same expression before expansion, using $w_d=1/\sqrt{u_d^n}$.
+In an absolute-variable solve the heating constant is
+$\sum_{(g,d)\in\mathcal H_f}3b_{fg}/(2\sqrt{u_d^n})$, reproducing the
+reference factor $3/2$. Symmetric $c_{1,fg}$ gives pairwise exchange
+energy cancellation. With fixed density, no motion and no gravity work,
+the local $c_1,c_4$ matrix reduces to the supplied conduction derivation
+after dividing the energy row by $V_i\rho_{f,i}^n$.
+
+\section{Centre and open outer boundary}
+\subsection{Regular centre, not four replacement PDE rows}
+At the physical face $R_0=0$, use even $\rho,u$ and odd $v$ under
+reflection. This imposes $\rho_r=0$, $u_r=0$ and $v=0$ at the centre.
+The first \emph{cell-centre} velocity need not vanish: a regular flow
+has $v(r)=v_1r+O(r^3)$. Set central mass, momentum-area and energy-area
+fluxes to zero and $L_f(0)=0$, and keep all first-cell evolution equations.
+Replacing them by $\rho_0=\rho_1$, $u_0=u_1$ would discard a finite
+cell's mass/energy balance.
+
+Mass regularity gives
+\begin{equation}
+ M_f(r)=\frac{\rho_{f,c}}3r^3+O(r^5),\qquad
+ rM_f'(r)-3M_f(r)=O(r^5),\qquad M_f(0)=0.
+ \label{eq:robin}
+\end{equation}
+The limiting Robin relation is degenerate at exactly $r=0$; it is not
+an additional independent boundary datum. In the adopted finite-volume
+layout its first-cell counterpart is
+\begin{equation}
+ \boxed{M_{f,0}-V_0\rho_{f,0}=0,\quad V_0=R_1^3/3.}
+\end{equation}
+This supplies the requested regular mass closure without $0/0$ or
+overconstraining the first-order enclosed-mass equation. There is no
+additional mass boundary condition at $B$.
+
+\subsection{Material outflow into vacuum}\label{sec:outer}
+Use the ideal-gas Riemann problem between the last populated interior
+state and vacuum, rather than prescribing $v$, $\rho$ and $P$ separately.
+At the old interior state define
+\begin{equation}
+ c=\sqrt{\gamma\beta u/\epsilon},\qquad
+ v_{\rm head}=v-c,\quad v_{\rm front}=v+\frac{2c}{\gamma-1}.
+\end{equation}
+Freeze the selected regime for one linearized step:
+\begin{equation}
+ F_B(x)=\begin{cases}
+ F(x),&v_{\rm head}\ge0,\\
+ F\!\left(\rho\chi^{2/(\gamma-1)},c\chi,u\chi^2\right),
+ &v_{\rm head}<0<v_{\rm front},\\
+ 0,&v_{\rm front}\le0,
+ \end{cases}\qquad
+ \chi=\frac{2c+(\gamma-1)v}{(\gamma+1)c}.
+ \label{eq:vacuum}
+\end{equation}
+The intermediate branch is the rarefaction sampled at the stationary
+face.\footnote{For the Euler rarefaction invariants, see the
+\href{https://www.clawpack.org/riemann_book/html/Euler.html}{Clawpack Riemann book, Euler chapter}.}
+Its mass flux is nonnegative. It lets a pressure-supported boundary
+expand even if its old mean velocity is zero. Gravity acts through the
+cell source, not through an extra hydrostatic boundary row.
+
+For the fan branch at $\gamma=5/3$, let
+$R=\rho\chi^3$, $V=c\chi=(3c+v)/4$, $U=u\chi^2$.
+The complete derivative needed by the banded matrix is $H_B=H(R,V,U)K$,
+where
+\begin{equation}
+ K=\frac{\partial(R,V,U)}{\partial(\rho,v,u)}=
+ \begin{pmatrix}
+ \chi^3&3\rho\chi^2/(4c)&-3\rho\chi^2v/(8cu)\\
+ 0&1/4&3c/(8u)\\
+ 0&u\chi/(2c)&\chi^2-\chi v/(4c)
+ \end{pmatrix}.
+ \label{eq:vacjac}
+\end{equation}
+For the first and last branches, $H_B=H$ and $H_B=0$ respectively.
+Thus $F_B^*=F_B^n+H_B\delta x_{N-1}$ couples only the last cell.
+The compiler differentiates Eq.~\eqref{eq:vacuum} directly and checks
+its result independently. At regime transitions or a vacuum cell,
+use the appropriate one-sided/vacuum treatment, not a derivative through
+$u=0$. A positive-state linearization is not itself a complete vacuum-cell
+algorithm; that extension must be tested before evolving actual empty cells.
+
+\subsection{Nonzero outward heat flux}
+An insulating $u_r(B)=0$ would contradict the requested thermal outflow.
+Choose instead
+\begin{equation}
+ \partial_r z(B)+\frac{z(B)}{\ell_{\rm th}}=0,\qquad
+ z=\sqrt u,\quad\ell_{\rm th}>0.
+\end{equation}
+With $d_B=B-r_{N-1}$, linear interpolation to the face gives
+\begin{equation}
+ L_{f,B}^*=h_f z_{f,N-1},\qquad
+ h_f=\frac{c_{2,f}B^2\rho_{f,N-1}^n}{\ell_{\rm th}+d_B}\ge0.
+ \label{eq:thermalboundary}
+\end{equation}
+For this proposed baseline choose $\ell_{\rm th}=B$, keeping the
+coefficient finite under refinement; retain $h_f$ symbolically in the
+compiler for auditing alternatives. This is an absorbing exterior thermal
+closure, not a derivation of a unique collisionless escape luminosity.
+It allows energy loss without imposing a fixed last-cell temperature.
+It is independent of advected enthalpy; both contributions enter the
+energy ledger. Setting $h_f=0$ recovers a closed thermal test.
+
+\section{Every block entry and the RHS}\label{sec:matrix}
+Let $e_3=(0,0,1)^T$, $e_u=(0,0,1)^T$, and consider cell $i$.
+The three fluid rows are
+\begin{equation}
+ V_iT_{f,i}\delta x_{f,i}+\Delta t\left[
+ A_{i+1}\widehat F_{f,+}^*-A_i\widehat F_{f,-}^*
+ +e_3(L_{f,+}^*-L_{f,-}^*)-V_iS_f^*\right]=0,
+ \label{eq:assembledrow}
+\end{equation}
+where $S_f^*=S_f^{\rm dyn,*}+e_3Q_f^{E,*}$.
+Each cell has a $12\times12$ diagonal block and two neighbouring blocks.
+For compactness below, $A_-=A_i$, $A_+=A_{i+1}$,
+$k_-=k_{f,i-1/2}$ and $k_+=k_{f,i+1/2}$.
+
+The following $3\times3$ matrices specify \emph{every} primitive-column
+entry in the first three rows of the species blocks; $T,H,D,B,G$ and
+the interface Jacobians were explicitly listed above:
+\begin{align}
+ A^-_{fg}\big|_{x}
+ &=\delta_{fg}\left[-\Delta t A_-J_{f,-,L}
+ -\Delta t\frac{k_-}{2\sqrt{u_{f,i-1}^n}}e_3e_u^T\right],
+ \label{eq:blockminus}\\
+ A^0_{fg}\big|_{x}
+ &=\delta_{fg}\left[V_iT_f+\Delta t(A_+J_{f,+,L}-A_-J_{f,-,R})
+ -\Delta t V_iD_f
+ +\Delta t\frac{k_-+k_+}{2\sqrt{u_{f,i}^n}}e_3e_u^T\right]
+ -\Delta t V_i B_{fg}e_3e_u^T,\\
+ A^+_{fg}\big|_{x}
+ &=\delta_{fg}\left[\Delta t A_+J_{f,+,R}
+ -\Delta t\frac{k_+}{2\sqrt{u_{f,i+1}^n}}e_3e_u^T\right].
+ \label{eq:blockplus}
+\end{align}
+The enclosed-mass columns in those same three rows are
+\begin{equation}
+ A^-_{fg}\big|_M=-\Delta t V_iG_f^{(-)},\qquad
+ A^0_{fg}\big|_M=-\Delta t V_iG_f^{(0)},\qquad
+ A^+_{fg}\big|_M=0.
+\end{equation}
+The fourth (mass-constraint) row has only
+\begin{equation}
+ A^0_{(f,M),(f,\rho)}=-V_i,\qquad
+ A^0_{(f,M),(f,M)}=1,\qquad
+ A^-_{(f,M),(f,M)}=-1.
+ \label{eq:massrow}
+\end{equation}
+All other entries in that row, and all entries not specified by these
+formulas, are zero. This also states all cross-species couplings.
+
+The increment RHS in the first three rows is
+\begin{equation}
+ \boxed{b_{f,i}=\Delta t\left[V_i(S_f^{{\rm dyn},n}+e_3Q_f^{E,n})
+ -A_+\widehat F_{f,+}^n+A_-\widehat F_{f,-}^n
+ -e_3(L_{f,+}^n-L_{f,-}^n)\right].}
+ \label{eq:rhs}
+\end{equation}
+The fourth RHS is
+$b_{f,M}=-(M_{f,i}^n-M_{f,i-1}^n-V_i\rho_{f,i}^n)$; it vanishes
+for a consistent old state, but should not be silently discarded.
+
+\paragraph{First cell.}
+Delete all incoming-flux terms, set $k_-=0$, $G^{(-)}=0$,
+$M_{f,-1}=0$, and delete the previous-mass coefficient in
+Eq.~\eqref{eq:massrow}. Keep the full first-cell time and source terms.
+
+\paragraph{Last cell.}
+Replace $\widehat F_+^n$ by $F_B^n$, $J_{+,L}$ by $H_B$,
+and set $J_{+,R}=0$. Replace the outgoing conduction diagonal $k_+$
+by $h_f$, delete its next-cell term, and use
+$L_+^n=h_f\sqrt{u_{f,N-1}^n}$ in the RHS. The inner-face terms and
+mass-constraint row are unchanged. No next-cell unknown survives.
+Different components may use different branches of Eq.~\eqref{eq:vacuum}.
+
+The result is $A\delta X=b$. If one prefers to solve for the absolute
+primitive predictor, the identical equation is
+\begin{equation}
+ AX^*=b_{\rm abs},\qquad b_{\rm abs}=b+AX^n.
+\end{equation}
+The companion exports both RHS conventions so that a missing constant
+from a square-root expansion cannot be hidden by notation.
+
+\section{Conservative recovery, outflow, and computational cost}
+\subsection{One solve followed by local algebra}
+Since $W$ is nonlinear in $(\rho,v,u)$, storing $x^n+\delta x$ directly
+would not preserve the conservative time update exactly. Recover
+\begin{align}
+ \widetilde W_f&=W_f^n+T_f\delta x_f,&
+ \rho_f^{n+1}&=\widetilde W_{f,1},\\
+ v_f^{n+1}&=\widetilde W_{f,2}/\rho_f^{n+1},&
+ u_f^{n+1}&=\widetilde W_{f,3}/\rho_f^{n+1}
+                  -\epsilon(v_f^{n+1})^2/2.
+ \label{eq:recovery}
+\end{align}
+Keep $M^{n+1}=M^n+\delta M$. Density is unchanged by recovery, so the
+mass constraints remain satisfied. The recovery costs $O(1)$ per cell,
+requires no matrix solve, and differs from the primitive predictor by
+$O(|\delta X|^2)$. It is part of the proposed algorithm, not an optional
+post hoc conservation repair. If final primitive values must be the
+literal solution of a linear equation, exact nonlinear conservative
+storage and a single solve cannot both be promised.
+
+Use the \emph{same solved affine boundary flux}, before primitive
+recovery, for the per-step outflow ledger:
+\begin{align}
+ \Delta M_{f,\rm out}&=\Delta t B^2\widehat F_{f,B,1}^*,\\
+ \Delta E_{f,\rm adv}&=\Delta t B^2\widehat F_{f,B,3}^*,&
+ \Delta E_{f,\rm heat}&=\Delta t L_{f,B}^*.
+\end{align}
+For zero central flux and no mass conversion,
+\begin{equation}
+ \boxed{M_{f,N-1}^{n+1}-M_{f,N-1}^n=-\Delta M_{f,\rm out}.}
+\end{equation}
+Do not recompute a nonlinear face flux from recovered snapshots and use
+that different number in the budget. Summed internal conductive and
+advective fluxes cancel. This guarantees the discrete \emph{mass} ledger,
+not exact total gravitational energy conservation. Self-gravity work,
+the external potential $-qr^2/2$, physical binary heating/binding budgets,
+and gravitational energy carried by exported mass need their own
+consistent energy audit.
+
+Specific entropy is materially constant for smooth adiabatic flow in
+the continuum, but this first-order dissipative discretization does not
+preserve $P/\rho^{5/3}$ exactly. Heating/conduction and shocks change
+entropy physically; numerical entropy must decrease under refinement.
+This differs from the algebraic entropy-preserving hydrostatic projection.
+
+\subsection{Bandwidth and the precise linear-complexity claim}
+With Eq.~\eqref{eq:ordering}, symbolic enumeration gives
+\begin{equation}
+ n_{\rm eq}=12N,\qquad k_l=13,\qquad k_u=14.
+\end{equation}
+The original $(\rho_s,v_s,u_s,M_s,\ldots)$ layout gave $(k_l,k_u)=(19,13)$.
+Moving masses to the block end and reversing the primitive triples gives
+$(13,14)$. This is optimal among matching within-cell row/column
+permutations: bidirectional neighbouring primitive couplings force
+both half-bands to be at least 13, while three mutually coupled primitive
+variables span at least two slots, forcing one half-band to be at least 14.
+All centre and outer regimes are included in the symbolic sparsity audit.
+A general pivoted band solve, not a dense solve and not an SPD solver,
+has work $O(n_{\rm eq}k_l(k_l+k_u))=O(N)$ and memory $O(N)$.
+LAPACK general-band storage needs $2k_l+k_u+1=41$ rows (previously 52), including pivot
+fill-in.\footnote{Storage convention:
+\href{https://netlib.org/lapack/explore-html/db/df8/group__gbsv_gaff55317eb3aed2278a85919a488fec07.html}{LAPACK DGBSV documentation}.}
+Block assembly, local recovery, all budget sums and a scan for
+$M(r)=qr^3$ are also $O(N)$. Do not eliminate the enclosed-mass constraints
+into a dense Jacobian or compute each enclosed mass by a fresh inner sum.
+The claim is \emph{per timestep}; refining the grid can require more
+timesteps, so the full run need not scale linearly with $N$.
+
+\subsection{Admissibility and later implementation}
+One Taylor-linearized solve is not unconditionally positivity preserving.
+Require positive density and internal energy, a valid populated-cell
+temperature for all expansions, and nonnegative outward boundary mass
+flux for the chosen vacuum model. Bound the step using wave propagation,
+source changes and outgoing cell mass, as well as the existing fractional
+$u$ accuracy criterion. If a step is invalid, report failure; do not
+silently clip densities, count negative outflow as escape, or retry without
+an agreed policy. An implicit solve does not guarantee accuracy at large
+$\Delta t$ or cure low-Mach numerical diffusion. Vacuum activation,
+reference source quadrature, sonic-branch changes and large-time-step
+behaviour require numerical tests before production use.
+
+The implemented class owns one contiguous fluid vector, fixed grid
+metadata, band workspace and budget state. Evolving scalar ledgers can
+be stored in a documented tail of the state vector (outside the $12N$
+solve); geometry and physical conversion metadata must not be confused
+with solved fluid entries. Keep evolution, initialization and observer
+settings separate. Use named helpers for assembly, boundary fluxes,
+recovery and validation, called through the shared-style \texttt{evolve()}
+driver. Do not call hydrostatic relaxation after the moving step or
+delete material at the diagnostic tidal radius. The implementation lives in
+\texttt{moving\_three\_fluid.hpp/cpp}; initializer and comparison observer
+settings remain separate.
+
+\section{Companion Mathematica files and checks}
+\texttt{moving\_three\_fluid\_compiler.wl} builds the nonlinear residuals,
+their affine discretization, every coefficient by \texttt{Coefficient},
+and the RHS by subtracting the coefficient--variable dot product, following
+the method of the supplied conduction compiler. The supplied reference
+file contains its expressions inside comments; the companion here is
+executable and does not rely on uncommenting or changing that file.
+
+Open \texttt{moving\_three\_fluid\_compiler.nb} and evaluate its first
+cell. The resulting association has the cases
+\texttt{centre}, \texttt{bulk}, \texttt{outer\_fan},
+\texttt{outer\_supersonic}, and \texttt{outer\_vacuum}.
+Each contains \texttt{Aminus}, \texttt{Adiag}, \texttt{Aplus},
+\texttt{IncrementRHS} and \texttt{AbsoluteRHS}. The local column list
+orders offsets $-1,0,+1$, then species, then $\rho,v,u,M$.
+\texttt{moving\_three\_fluid\_entries.txt} lists every nonzero scalar
+entry and each increment RHS; \texttt{moving\_three\_fluid\_coefficients.wl}
+is a reloadable symbolic export. Unlisted entries are zero.
+
+Checks include affine reconstruction of all rows, independent storage
+and flux Jacobians, finite differences of the \emph{nonlinear} residuals
+for every cell/boundary case, the scalar bandwidth, centre mass regularity,
+telescoping of the assembled continuity equations, pairwise exchange
+energy cancellation, and conservative primitive recovery.
+The block formulas in Sec.~\ref{sec:matrix} are assembled independently
+and compared entry by entry with the extracted coefficients.
+The companion additionally exports \texttt{storageRowsByRegion}, containing
+all blocks, variable lists and both RHS conventions in the optimized order.
+The optimized half-bandwidths and affine identities are checked independently.
+These are algebraic checks, not a completed hydrodynamic stability test.
+The C++ implementation and sample comparisons are described in the companion
+note \emph{MovingThreeFluidSim: implementation checks and sample comparisons}.
+The earlier results note records the centred-flux checkpoint; the
+updated oscillation checks below supersede its instability status.
+
+\section{Contraction tests of the alternating flux}
+The heating-off scan shows that strong contraction, not heating itself
+or a small mass fraction, excites the old checkerboard mode. The new scheme
+retains conduction, the timestep controller, gravity, outflow and source
+coefficients. No retry, state floor, velocity filter or removal of trace
+fluids is used. Two exploratory pressure-correction schemes were rejected:
+an acoustic-strength face balance was inconsistent with the cell balance
+and stalled; a weaker pressure correction barely changed the oscillation.
+They are not retained as selectable implementations.
+
+The alternating traces remove the acoustic null space. Removing the old
+primitive offsets is also necessary: retaining them in this flux drove the
+outermost nonconducting binary cell towards zero internal energy and stalled
+the single-fluid run near $t=4.22$. With raw primitives and the corresponding
+reference-source quadrature, all runs in Table~\ref{tab:oscillation} finish.
+The physical outer material and heat boundary formulas are unchanged.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Case & $N$ & Target $t$ & Steps & Final stellar estimator\\
+\midrule
+Single / equal split &150&5&5537&$1.92\times10^{-4}$\\
+AB-like &150&2.8&3206&$1.09\times10^{-4}$\\
+Canonical &500&5&7237&$1.33\times10^{-5}$\\
+Canonical refined &1000&5&7317&$3.05\times10^{-6}$\\
+Concentrated DM, heating off &150&5&5967&$1.93\times10^{-4}$\\
+Concentrated DM, heating off &300&5&6213&$3.05\times10^{-5}$\\
+\bottomrule
+\end{tabular}
+\caption{The estimator is the median of
+$|(2v_i-v_{i-1}-v_{i+1})/4|$ over $0.1<r_i<1$, in $r_0/t_0$ units.
+It includes ordinary smooth curvature and is not a fixed-wavenumber norm.
+Final-step overshoot is allowed.}\label{tab:oscillation}
+\end{table}
+The old single-fluid value was $0.119$, with repeated inward/outward
+alternation; the new profile has one smooth transition from contraction
+to expansion. The concentrated-DM setup has $\rho_{s,0}=1$,
+$\xi_b=10^{-10}$, $\xi_d=1$, $\zeta_b=1$, $\zeta_d=0.3$,
+$m_s=10^{-6}$, $m_b/m_s=2$, $m_d/m_s=10^{-10}$ and $c_1=c_4=0$.
+Its old 150/300-cell estimators were approximately $0.53/1.26$.
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../output/moving_oscillation_fix/single/velocity_oscillations.pdf}{%
+\includegraphics[width=.9\textwidth]{../output/moving_oscillation_fix/single/velocity_oscillations.pdf}}{%
+\fbox{\parbox{.85\textwidth}{Run the documented comparison and plotting commands
+to generate \texttt{output/moving\_oscillation\_fix/single/velocity\_oscillations.pdf}.}}}
+\caption{Old centred flux (red) and new alternating flux (blue) in the
+single-fluid setup, including both trace components. Left: signed cell
+velocities at common final time. Right: the second-difference estimator.
+The positive residual estimator for a smooth curve is not evidence of
+remaining checkerboarding. No time or amplitude rescaling is applied.}
+\end{figure}
+
+The C++ pressure/velocity perturbation tests, with conduction off and
+$\epsilon=0.03$ or $10^{-9}$, reduce the respective alternating amplitudes
+below $0.061$ of their initial values in one step with $c\Delta t/h=10$.
+A separate no-heating/no-conduction test reaches $t=0.12$.
+All 37 Mathematica checks pass. Matrix/RHS comparisons with C++ give scaled
+errors $4.17\times10^{-16}$ and $1.68\times10^{-16}$. The unchanged mass
+and gas-energy/work ledgers still close near roundoff.
+
+These checks remove the observed instability; they do not establish a
+fully converged collapse solution. In the concentrated-DM case the final
+central densities are $123.4$ and $178.8$ at 150 and 300 cells. The
+1000-cell canonical stellar density and dispersion remain within 10\%
+of the hydrostatic reference throughout the tested interval, but the
+coarse unequal-mass comparison still differs substantially. Before
+production use, require spatial/time convergence and broader wave,
+vacuum and tidal-escape tests. In particular, the raw ratio $v/\sqrt{2u/3}$
+mixes velocity units: the ratio to physical dispersion is
+$\sqrt{\epsilon}v/\sqrt{2u/3}$. Large raw plotted velocities alone
+are not evidence of supersonic motion.
+\end{document}

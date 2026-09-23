@@ -52,18 +52,26 @@ LDFLAGS += $(foreach librarydir,$(program_LIBRARY_DIRS),-L$(librarydir))
 LDLIBS += $(foreach library,$(program_LIBRARIES),-l$(library))
 
 
-.PHONY: all check clean distclean
+.PHONY: all check check-moving-symbolic clean distclean
 
 all: $(program_NAME)
 
 $(program_NAME): $(program_OBJS)
 	$(LINK.cc) $(program_OBJS) -o $(program_NAME) $(LDLIBS)
 
-check: $(check_NAME) check_statler check_examples
+check: $(check_NAME) check_statler check_examples check_moving
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./$(check_NAME)
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_statler
 	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_examples
+	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_moving
 	python3 -m unittest discover -s test -p 'test_*.py'
+
+check-moving-symbolic: check_moving
+	wolframscript -code 'Get["script/mathematica/moving_three_fluid_compiler.wl"]; If[TrueQ[MovingThreeFluid`allChecksPassed],Exit[0],Exit[1]]'
+	OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 ./check_moving --export output/moving_matrix_fixture
+	wolframscript -file script/mathematica/check_moving_cpp.wls
+	wolframscript -file script/mathematica/export_moving_band_pattern.wls
+	python3 script/mathematica/check_moving_bandwidth.py
 
 check_statler: test/check_statler.o $(solver_check_OBJS)
 	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
@@ -71,10 +79,22 @@ check_statler: test/check_statler.o $(solver_check_OBJS)
 check_examples: test/check_examples.o $(solver_check_OBJS)
 	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
+check_moving: test/check_moving.o test/moving_three_fluid.o $(solver_check_OBJS)
+	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+
+test/check_moving.o: test/check_moving.cpp $(program_HPP_SRCS)
+	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
+
+test/moving_three_fluid.o: src/moving_three_fluid.cpp $(program_HPP_SRCS)
+	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
+
+src/moving_three_fluid.o: src/moving_three_fluid.cpp $(program_HPP_SRCS)
+	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
+
 test/check_examples.o: test/check_examples.cpp $(program_HPP_SRCS)
 	$(CXX) $(CPPFLAGS) $(check_CXXFLAGS) -c $< -o $@
 
-main-strict: test/main.o $(solver_check_OBJS)
+main-strict: test/main.o test/moving_three_fluid.o $(solver_check_OBJS)
 	$(CXX) $(check_CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 test/main.o: src/main.cpp $(program_HPP_SRCS)
@@ -114,6 +134,7 @@ clean:
 	$(RM) $(check_NAME)
 	$(RM) $(check_OBJS)
 	$(RM) check_statler check_examples main-strict test/check_statler.o test/check_examples.o test/main.o
+	$(RM) check_moving test/check_moving.o test/moving_three_fluid.o
 	$(RM) $(program_CXX_ASMS)
 	$(RM) $(wildcard *~)
 	$(RM) -r html latex

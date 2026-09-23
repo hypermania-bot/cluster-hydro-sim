@@ -2,6 +2,7 @@
 /check_hydrostatic_relaxation
 /check_statler
 /check_examples
+/check_moving
 /main-strict
 /output/
 *.o

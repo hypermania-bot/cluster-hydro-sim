@@ -1,0 +1,197 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=0.8in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+\setlength{\emergencystretch}{2em}
+\graphicspath{{../output/moving_comparison/}}
+\title{MovingThreeFluidSim: implementation checks and sample comparisons}
+\author{Implementation on the upstream 49dd74e baseline}
+\date{22 September 2026}
+\begin{document}
+\maketitle
+
+\section{Outcome and comparison convention}
+\emph{Historical centred-flux checkpoint. The updated numerical-scheme note
+documents the alternating-flux correction and new runs that remove the
+checkerboard failure. The results below are retained for comparison, not
+as the current implementation's validation status.}
+
+The implementation checkpoint is \texttt{17285f4}, on branch
+\texttt{derivation/moving-three-fluid}.
+The optimized $12N$ solver is implemented, with scalar half-bandwidths
+$(13,14)$ and one banded linear equation per step. The companion scheme
+note and Mathematica compiler include the implementation corrections.
+\textbf{The long-run validation gate is not yet met.} The single fluid
+and its equal-mass split agree with one another, but the unequal-mass
+comparison differs substantially and very dilute components develop
+oscillations that make the adaptive timestep impractically small.
+No density floor, timestep retry, deleted trace component or shifted
+collapse time was used to conceal these failures.
+
+Both solvers start from identical density, internal energy, grid and
+particle masses, with identical $c_1,c_2,c_4$. All tests here have $q=0$,
+no formation and no imposed stripping. Separate unit tests exercise $q>0$.
+The canonical case is the no-formation baseline of \texttt{main.cpp};
+the 1000-cell case is its resolution test. The Yiming cases retain their
+150-cell initialization. Their stored masses imply a different particle
+count from the canonical $10^6$-star initialization; we do not silently
+change them. The inertia coefficient uses
+\begin{equation}
+ \epsilon=(3m_s\ln\Lambda_{sd})^2,\qquad
+ \ln\Lambda_{sd}=\ln\left(\frac{0.8M_{\rm tot}}{m_s+m_d}\right).
+\end{equation}
+It is $1.2533\times10^{-9}$ for the single/split cases,
+$1.3835\times10^{-9}$ for the AB-like baseline and
+$1.8475\times10^{-10}$ for the canonical case.
+
+Plots compare actual accepted code times and common cell-centre radii.
+The plotted one-dimensional dispersion is $\sigma/\sqrt{u_0}=\sqrt{2u/3}$.
+Neither time nor density is rescaled to align collapse. Solid/dashed
+profile curves denote hydrostatic/moving solvers; rainbow colour denotes
+time. Both solvers may overshoot the final time, and temporal interpolation
+is confined to their common output interval. The moving solver has open
+material/thermal boundaries, unlike the hydrostatic outer closure. Its
+stellar mass loss is below $7\times10^{-6}$ in these tests, so a large
+core discrepancy cannot be explained by a large global escaped mass.
+
+\section{Checks that pass}
+The 34 Mathematica checks pass, including the optimized storage permutation,
+all boundary regimes, nonlinear finite-difference Jacobians and the assembled
+continuity ledger. Every C++ matrix entry and RHS entry was compared with
+the independent symbolic derivation in a five-cell fixture containing
+fan, supersonic and vacuum outer branches. The maximum scaled discrepancies
+were $3.73\times10^{-16}$ and $3.39\times10^{-16}$, respectively.
+
+The C++ checks cover band versus dense solution, central regularity,
+interior equilibrium residuals, the tidal source and outward evolution,
+single/split equivalence, reference depletion, local thermal agreement with
+the existing conduction operator, invalid input and parameter serialization.
+The existing hydrostatic, Statler and sample checks and all 12 Python tests
+pass. These short checks do not establish long-run stability.
+
+Across the reported runs, relative mass-ledger errors remain below
+$3\times10^{-15}$. The per-step gas-energy/work residual is below
+$5\times10^{-17}$. The latter compares random-plus-bulk energy with the
+included gravitational/reference work, heating and exported energy;
+it does not assert exact conservation of total gravitational energy.
+For 50, 100, 200, 400 and 800 cells, measured step times were approximately
+0.47, 0.93, 1.88, 3.90 and 8.42 ms in the short benchmark. Band storage
+doubles exactly with $N$, consistent with the explicit $O(N)$ loops and
+fixed-band factorization.
+
+\section{Evolution comparisons}
+Table~\ref{tab:results} gives central stellar ratios at the last common
+time. A partial run is not a successful integration to $t=5$.
+\begin{table}[ht]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Case & $N$ & Last common $t$ & $\rho_{s,c}^{\rm mov}/\rho_{s,c}^{\rm hyd}$
+& $\sigma_{s,c}^{\rm mov}/\sigma_{s,c}^{\rm hyd}$\\
+\midrule
+Single fluid &150&5.0001&0.5072&0.9408\\
+Equal-mass split &150&5.0001&0.5072&0.9408\\
+AB-like, no stripping &150&2.8002&0.1580&0.9021\\
+Canonical, partial &500&3.1371&0.9755&1.0000\\
+Canonical refined, partial &1000&2.7291&0.9932&1.0005\\
+\bottomrule
+\end{tabular}
+\caption{Ratios use unshifted code time. Both canonical runs requested $t=5$
+but stopped at the 12000-step safety limit after trace-fluid oscillations
+made their timestep small.}\label{tab:results}
+\end{table}
+
+For the 150-cell single fluid, central density agrees within 10\% for
+about 62\% of the interval $0<t<5$; dispersion agrees within 10\% throughout.
+The late contraction is slower in the moving calculation. The equal split
+does not introduce a new effect: its total central density differs from
+the unsplit moving calculation by less than $10^{-9}$, and mass-weighted
+dispersion by less than $8\times10^{-11}$ over the sampled common history.
+Thus splitting a physically identical fluid passes the consistency check.
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../output/moving_comparison/matched_single/central_evolution.pdf}{%
+\includegraphics[width=.9\textwidth]{matched_single/central_evolution.pdf}}{%
+\fbox{\parbox{.85\textwidth}{Generate the matched-single comparison to insert this figure.}}}
+\caption{Single-fluid evolution at the original 150-cell resolution.
+Agreement at early times does not imply agreement close to collapse.}
+\end{figure}
+
+The canonical stellar component tracks the hydrostatic result much more
+closely before the trace-fluid failure. Refinement improves that stellar
+agreement, but does not cure the failure: the 1000-cell run stalls earlier
+at the same bounded step budget. In the 500-cell run, strong cell-to-cell
+structure develops in the extremely dilute DM component. Its density and
+temperature have anticorrelated oscillations, accompanied by alternating
+radial velocities. The timestep controller is responding to that state;
+the million-step diagnostic did not recover useful progress. Small linear
+residuals and accurate mass budgets do not validate an oscillatory solution.
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../output/moving_comparison/review_canonical/all_components_final.pdf}{%
+\includegraphics[width=\textwidth]{review_canonical/all_components_final.pdf}}{%
+\fbox{\parbox{.9\textwidth}{Generate the canonical comparison to insert this figure.}}}
+\caption{All three components at the end of the partial 500-cell run.
+The mass-dominant stellar agreement alone would conceal the DM failure.
+The bottom row shows raw moving-fluid cell velocities, not a velocity
+inferred from the hydrostatic calculation.}
+\end{figure}
+
+For the AB-like unequal-mass case, the moving calculation segregates less
+strongly. At $t=2.8$, its central DM density is 2.89 times the hydrostatic
+value, while its central DM dispersion is 0.746 times that value.
+The requested majority-of-evolution agreement is therefore not obtained
+for this case. This cannot be presented as a validated reproduction.
+
+\section{The hydrostatic reference is not a conservative ground truth}
+The upstream realignment logarithmically interpolates density, recomputes
+enclosed masses, then rebuilds pressure by a hydrostatic integration and
+sets $u=3P/(2\rho)$. It does not conservatively transport mass and entropy
+through that remap. We left this existing implementation unchanged.
+
+An operator audit of the initial AB-like case isolates $c_1$ exchange by
+setting $c_2=0$. With $\Delta t=10^{-3}$, realignment changes total mass by
+$-2.17\times10^{-5}$ and random energy by $-2.30\times10^{-6}$, relative to
+the immediately preceding relaxed state. These are absolute code-unit
+changes, not full-step physical energy losses.
+
+There is also a finite-grid, zero-step effect. At $\Delta t=0$, the old
+conduction boundary still sets $u_0=u_1$, changing central $u_s$ by
+$-9.6372\times10^{-6}$ in this initial profile. Subsequent relaxation and
+realignment change the profile despite zero elapsed time. In this audit
+the realignment mass and random-energy changes are
+$-3.4186\times10^{-7}$ and $-3.5137\times10^{-8}$. Therefore dividing these
+initial-step changes by an ever smaller $\Delta t$ does not measure a
+convergent physical rate. The moving finite-volume centre instead retains
+the first cell's energy equation and imposes zero face flux.
+
+In addition, the per-fluid hydrostatic projection uses sums of masses at
+the same shell index while fluid radii may differ. For relative shell
+displacements $\xi_f$, a common-radius treatment contains
+\begin{equation}
+ \delta M_{\rm tot}(R_f)=R_f^2\sum_g\rho_g(\xi_f-\xi_g).
+\end{equation}
+This vanishes for an identical co-moving split but not for unequal flows.
+Its omission in a per-fluid Jacobian, followed by a remap and pressure
+reset, is another distinction to audit. The present tests do not isolate
+its quantitative share of the AB discrepancy. Nor do they establish that
+the new scheme is correct simply because the reference has deficiencies.
+
+\section{Remaining acceptance work}
+The implementation should remain experimental. The next numerical task
+is an entropy-compatible, low-Mach, well-balanced interface treatment
+that remains admissible when a trace component departs strongly from the
+fixed reference. A smaller timestep, deleting that component or adding a
+temperature floor is not a demonstrated cure. Empty-cell transitions also
+remain outside the positive-state linearization.
+
+Separately, a conservative hydrostatic remap and compatible centre treatment
+are needed before demanding close multi-fluid agreement with that reference.
+These are changes to the existing solver and were not made in this task.
+Reproduction commands, binary output conventions and the explicit current
+limitations are documented with the C++ implementation. The generated PDFs
+include density/dispersion profiles, central histories and all-component
+diagnostics; partial histories are labelled as such.
+\end{document}

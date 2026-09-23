@@ -1,0 +1,41 @@
+Notebook[{Cell["MovingThreeFluidSim: one banded solve", "Title"],
+  Cell["Analytic compiler for review. No C++ is generated. Evaluate the \
+following cell to regenerate all coefficients and tests. The state order is \
+cell, species (s,b,d), then rho,v,u,M. M is enclosed mass at the outer cell \
+face. Geometry is a prescribed common grid.", "Text"],
+  Cell[BoxData[RowBox[{"Get", "[", RowBox[{"FileNameJoin", "[",
+        RowBox[{"{", RowBox[{RowBox[{"NotebookDirectory", "[", "]"}], ",",
+            "\"moving_three_fluid_compiler.wl\""}], "}"}], "]"}], "]"}]],
+   "Input"], Cell["Local conservative storage and flux Jacobians",
+   "Section"], Cell[BoxData[TagBox["storageJacobian",
+     Function[BoxForm`e$, MatrixForm[BoxForm`e$]]]], "Input"],
+  Cell[BoxData[TagBox["fluxJacobian", Function[BoxForm`e$,
+      MatrixForm[BoxForm`e$]]]], "Input"],
+  Cell["All band entries and both RHS conventions", "Section"],
+  Cell["Select centre, bulk, outer_fan, outer_supersonic, or outer_vacuum. \
+Different species may select different outer regimes. Aminus, Adiag, Aplus \
+are the 12 by 12 blocks. IncrementRHS solves for delta X; AbsoluteRHS solves \
+for the primitive predictor X*. Conservative local recovery follows that \
+solve.", "Text"],
+  Cell[BoxData[RowBox[{RowBox[{"rowsByRegion", "[", "\"bulk\"", "]"}], "[",
+      "\"Variables\"", "]"}]], "Input"],
+  Cell[BoxData[TagBox[RowBox[{"entriesByRegion", "[", "\"bulk\"", "]"}],
+     Function[BoxForm`e$, TableForm[BoxForm`e$]]]], "Input"],
+  Cell[BoxData[TagBox[RowBox[{RowBox[{"rowsByRegion", "[", "\"bulk\"", "]"}],
+       "[", "\"IncrementRHS\"", "]"}], Function[BoxForm`e$,
+      TableForm[BoxForm`e$]]]], "Input"],
+  Cell[BoxData[TagBox[RowBox[{RowBox[{"rowsByRegion", "[", "\"centre\"",
+         "]"}], "[", "\"Matrix\"", "]"}], Function[BoxForm`e$,
+      MatrixForm[BoxForm`e$]]]], "Input"],
+  Cell[BoxData[TagBox[RowBox[{"entriesByRegion", "[", "\"outer_fan\"", "]"}],
+     Function[BoxForm`e$, TableForm[BoxForm`e$]]]], "Input"],
+  Cell[BoxData[TagBox["vacuumJacobian", Function[BoxForm`e$,
+      MatrixForm[BoxForm`e$]]]], "Input"], Cell["Verification", "Section"],
+  Cell[BoxData["checks"], "Input"], Cell[BoxData["finiteDifferenceErrors"],
+   "Input"], Cell[BoxData["bandwidth"], "Input"],
+  Cell["Optimized storage: u_s,v_s,rho_s,u_b,v_b,rho_b,u_d,v_d,rho_d,M_s,M_b,M_d. Use storageRowsByRegion for the permuted matrices and RHS; the logical tables above remain unchanged.", "Text"],
+  Cell[BoxData["storageBandwidth"], "Input"],
+  Cell[BoxData[RowBox[{"storageRowsByRegion", "[", "\"bulk\"", "]"}]], "Input"]},
+ WindowTitle -> "MovingThreeFluidSim derivation",
+ CellContext -> "MovingThreeFluid`",
+ StyleDefinitions -> "Default.nb"]

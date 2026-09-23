@@ -1,0 +1,46 @@
+(* Full numeric comparison against the independently extracted WL matrix.
+   Run check_moving --export output/moving_matrix_fixture from the repo root. *)
+directory=DirectoryName[$InputFileName];
+tables=Get[FileNameJoin[{directory,"moving_three_fluid_coefficients.wl"}]];
+fixture=FileNameJoin[{directory,"..","..","output","moving_matrix_fixture"}];
+read[name_]:=BinaryReadList[FileNameJoin[{fixture,name<>".dat"}],"Real64"];
+edges=read["faces"];state=read["state"];n=Length[edges]-1;
+cppA=Transpose[Partition[read["matrix"],12n]];cppB=read["rhs"];
+slot[f_,k_]:=If[k==3,9+f,3f+2-k];
+val[i_,f_,k_]:=state[[12i+slot[f,k]+1]];
+rad[i_]:=(edges[[i+1]]+edges[[i+2]])/2;
+wave[i_,f_,k_]:=Abs[val[i,f,1]]+If[k==1,Sqrt[10val[i,f,2]/(9*0.1)],0];
+conduct[j_,f_]:=0.07edges[[j+1]]^2*
+ (2val[j-1,f,0]val[j,f,0]/(val[j-1,f,0]+val[j,f,0]))/(rad[j]-rad[j-1]);
+wa=ConstantArray[0.,{12n,12n}];wb=ConstantArray[0.,12n];
+Do[
+ vol=(edges[[i+2]]^3-edges[[i+1]]^3)/3;
+ rules={MovingThreeFluid`rho[f_,o_]:>val[i+o,f,0],
+ MovingThreeFluid`vel[f_,o_]:>val[i+o,f,1],
+ MovingThreeFluid`u[f_,o_]:>val[i+o,f,2],
+ MovingThreeFluid`mass[f_,o_]:>val[i+o,f,3],
+ MovingThreeFluid`refRho[___]->0,MovingThreeFluid`refU[___]->0,
+ MovingThreeFluid`speed[f_,side_,k_]:>With[{j=i+If[side==1,1,0]},Max[wave[j-1,f,k],wave[j,f,k]]],
+ MovingThreeFluid`viscosity[f_,side_]:>With[{j=i+If[side==1,1,0]},
+   (Max[wave[j-1,f,1],wave[j,f,1]]-Max[wave[j-1,f,0],wave[j,f,0]])*
+   (val[j-1,f,0]+val[j,f,0])/2],
+ MovingThreeFluid`conductance[f_,side_]:>conduct[i+If[side==1,1,0],f],
+ MovingThreeFluid`escapeConductance[f_]:>0.07Last[edges]^2val[i,f,0]/(2Last[edges]-rad[i]),
+ MovingThreeFluid`c1[_,_]->0.003,MovingThreeFluid`c4[_,_]->0.002,
+ MovingThreeFluid`particleMass[f_]:>{1,2,0.1}[[f+1]],MovingThreeFluid`balanceAcceleration[_]->0,
+ MovingThreeFluid`volume->vol,MovingThreeFluid`dt->0.01,
+ MovingThreeFluid`areaLeft->edges[[i+1]]^2,MovingThreeFluid`areaRight->edges[[i+2]]^2,
+ MovingThreeFluid`radius->rad[i],MovingThreeFluid`geometry->(edges[[i+2]]^2-edges[[i+1]]^2)/vol,
+ MovingThreeFluid`eta->(rad[i]^3-edges[[i+1]]^3)/(3vol),MovingThreeFluid`eps->0.1,MovingThreeFluid`q->0.01};
+ Do[
+ reg=If[i==0,"centre",If[i==n-1,{"outer_fan","outer_supersonic","outer_vacuum"}[[f+1]],"bulk"]];
+ a=N[tables[reg]["Matrix"][[4f+1;;4f+4]]/.rules];
+ b=N[tables[reg]["IncrementRHS"][[4f+1;;4f+4]]/.rules];
+ Do[row=12i+slot[f,k]+1;wb[[row]]=b[[k+1]];
+ Do[j=i+Quotient[col-1,12]-1;g=Quotient[Mod[col-1,12],4];h=Mod[col-1,4];
+ If[0<=j<n,wa[[row,12j+slot[g,h]+1]]=a[[k+1,col]]],{col,36}],{k,0,3}],
+ {f,0,2}],{i,0,n-1}];
+matrixError=Max[Abs[Flatten[wa-cppA]]/(1+Abs[Flatten[wa]])];
+rhsError=Max[Abs[wb-cppB]/(1+Abs[wb])];
+Print["Mathematica/C++ matrix error = ",matrixError,"; RHS error = ",rhsError];
+Exit[If[TrueQ[matrixError<10^-12&&rhsError<10^-12],0,1]];
