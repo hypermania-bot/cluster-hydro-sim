@@ -4,6 +4,8 @@
 #include <cmath>
 #include <stdexcept>
 #include <limits>
+#include <sstream>
+#include <iomanip>
 
 namespace {
 constexpr double beta=2./3., gamma_gas=5./3.;
@@ -74,10 +76,12 @@ void MovingThreeFluidSim::initialize(const std::vector<double>& faces_in,
   correction.assign(3*n,0);
   fluxes.resize(3*(n+1));
   band.resize(LDAB*size);rhs.resize(size);factor.resize(LDAB*size);
-  increment.resize(size);scale.resize(size);next.resize(size);pivots.resize(size);
+  increment.resize(size);scale.resize(size);next.resize(size);pivots.resize(size);refinement.resize(size);
   totalTime=0;step=0;Deltat=param.Deltat;
   last_change=linear_residual=last_gravity_work=last_heating=energy_ledger_error=0;
   limiting_index=0;
+  cumulative_formed_binaries=cumulative_capture_energy=0;
+  last_formed_binaries=last_capture_energy=0;
   escaped_mass.fill(0);escaped_energy.fill(0);escaped_heat.fill(0);
   last_mass_outflow.fill(0);last_energy_outflow.fill(0);last_heat_outflow.fill(0);
   validate();
@@ -111,6 +115,12 @@ void MovingThreeFluidSim::validate() const {
     positive(param.StopDensity)&&std::isfinite(param.maxTime)&&param.maxTime>=0&&
     param.maxSteps>=0,"invalid parameters");
   for(double x:param.mass) require(positive(x),"invalid particle mass");
+  require(param.binary_formation==BINARY_FORMATION_OFF||
+          param.binary_formation==BINARY_FORMATION_POWER_LAW,"unsupported binary formation mode");
+  require(std::isfinite(param.capture_coefficient)&&param.capture_coefficient>=0,
+          "invalid capture coefficient");
+  if(param.binary_formation==BINARY_FORMATION_POWER_LAW)
+    require(std::abs(param.mass[FB]/param.mass[FS]-2)<1e-12,"capture requires m_b=2 m_s");
   for(const auto* a:{&param.c1,&param.c4})for(double x:*a)
     require(std::isfinite(x)&&x>=0,"invalid interaction coefficient");
   for(double x:param.c2)require(std::isfinite(x)&&x>=0,"invalid conductivity");
@@ -205,6 +215,25 @@ void MovingThreeFluidSim::thermalSource(int i,Vec& source,Mat& derivative) const
   }
 }
 
+double MovingThreeFluidSim::captureFrequency(int i) const {
+  return param.binary_formation==BINARY_FORMATION_OFF ? 0 :
+    param.mass[FB]*param.capture_coefficient*value(i,FS,RHO)/std::pow(value(i,FS,U),0.6);
+}
+
+void MovingThreeFluidSim::formationSource(int i,int f,Vec& source,Mat& derivative) const {
+  source.setZero();derivative.setZero();
+  if(f==FD||param.binary_formation==BINARY_FORMATION_OFF)return;
+  const Vec x=primitive(i,FS);
+  const double k=captureFrequency(i);
+  source=storage(x);derivative=storageJacobian(x);
+  if(f==FB) {
+    source[2]-=0.5*x[0]*x[2];
+    derivative(2,0)-=0.5*x[2];derivative(2,2)-=0.5*x[0];
+  }
+  const double sign=f==FS?-1:1;
+  source*=sign*k;derivative*=sign*k;
+}
+
 void MovingThreeFluidSim::assembleCells() {
   const int n=zones();const double dt=Deltat,e=param.epsilon;
   for(int i=0;i<n;++i) {
@@ -222,6 +251,11 @@ void MovingThreeFluidSim::assembleCells() {
       const double g=gravity-correction[3*i+f];
       Vec source(0,(a*beta*r*u-r*g)/e,-r*v*g);
       source[2]+=heat[f];
+      Vec formation;Mat formation_derivative;
+      formationSource(i,f,formation,formation_derivative);
+      source+=formation;
+      for(int row=0;row<3;++row)for(int col=0;col<3;++col)
+        add(index(i,f,row),index(i,FS,col),-dt*vol*formation_derivative(row,col));
       Mat deriv=Mat::Zero();
       deriv(1,0)=(a*beta*u-g)/e;deriv(1,2)=a*beta*r/e;
       deriv(2,0)=-v*g;deriv(2,1)=-r*g;
@@ -290,22 +324,41 @@ void MovingThreeFluidSim::solveBanded() {
                                pivots.data(),increment.data(),size);
   require(info==0,"band solve failed, info="+std::to_string(info));
   for(int k=0;k<size;++k)increment[k]*=scale[k];
-  linear_residual=0;
-  for(int row=0;row<size;++row) {
-    double residual=-rhs[row],norm=std::abs(rhs[row]);
-    for(int col=std::max(0,row-KL);col<=std::min(size-1,row+KU);++col) {
-      const double term=band[KL+KU+row-col+LDAB*col]*increment[col];
-      residual+=term;norm+=std::abs(term);
+  int worst_row=0;
+  // Source transfer can leave another component's nearly homogeneous rows
+  // inaccurate despite a good normwise solve. Refine against the ORIGINAL
+  // equations, reusing the band LU and its existing row/column scales.
+  for(int pass=0;pass<4;++pass) {
+    linear_residual=0;
+    for(int row=0;row<size;++row) {
+      long double residual=-rhs[row],norm=std::abs(rhs[row]);
+      for(int col=std::max(0,row-KL);col<=std::min(size-1,row+KU);++col) {
+        const long double term=static_cast<long double>(band[KL+KU+row-col+LDAB*col])*increment[col];
+        residual+=term;norm+=std::abs(term);
+      }
+      refinement[row]=-residual/next[row];
+      const double relative=std::abs(residual)/(norm+1e-300L);
+      require(std::isfinite(relative),"nonfinite linear residual");
+      if(relative>linear_residual) {linear_residual=relative;worst_row=row;}
     }
-    linear_residual=std::max(linear_residual,std::abs(residual)/(norm+1e-300));
+    if(linear_residual<1e-8||pass==3)break;
+    const int status=LAPACKE_dgbtrs(LAPACK_COL_MAJOR,'N',size,KL,KU,1,factor.data(),LDAB,
+                                    pivots.data(),refinement.data(),size);
+    require(status==0,"band refinement failed");
+    for(int k=0;k<size;++k)increment[k]+=scale[k]*refinement[k];
   }
-  require(std::isfinite(linear_residual)&&linear_residual<1e-8,"large linear backward error");
+  if(!(std::isfinite(linear_residual)&&linear_residual<1e-8)) {
+    std::ostringstream message;message<<std::setprecision(17)<<"large linear backward error "
+      <<linear_residual<<" at row "<<worst_row<<" step "<<step<<" dt "<<Deltat;
+    require(false,message.str());
+  }
 }
 
 double MovingThreeFluidSim::recoverAndBudget() {
   double change=0;
   long double energy_before=0,energy_after=0;
   last_gravity_work=0;last_heating=0;
+  last_formed_binaries=last_capture_energy=0;
   for(int i=0;i<zones();++i) {
     double m=0,dm=0;
     for(int f=0;f<NF;++f) {
@@ -317,6 +370,15 @@ double MovingThreeFluidSim::recoverAndBudget() {
     Vec heat;Mat derivative;thermalSource(i,heat,derivative);
     Vec du;for(int f=0;f<NF;++f)du[f]=increment[index(i,f,U)];
     last_heating+=Deltat*volumes[i]*(heat+derivative*du).sum();
+    const double capture=captureFrequency(i);
+    if(capture>0) {
+      const double r=value(i,FS,RHO),u=value(i,FS,U);
+      const double dr=increment[index(i,FS,RHO)],du=increment[index(i,FS,U)];
+      const double transfer=Deltat*volumes[i]*capture*(r+dr);
+      require(std::isfinite(transfer)&&transfer>=0,"invalid implicit capture transfer");
+      last_formed_binaries+=transfer/param.mass[FB];
+      last_capture_energy-=0.5*Deltat*volumes[i]*capture*(r*u+u*dr+r*du);
+    }
     for(int f=0;f<NF;++f) {
       const double r=value(i,f,RHO),v=value(i,f,VEL),g=gravity-correction[3*i+f];
       last_gravity_work-=Deltat*volumes[i]*(r*v*g+v*g*increment[index(i,f,RHO)]+
@@ -352,10 +414,12 @@ double MovingThreeFluidSim::recoverAndBudget() {
     escaped_mass[f]+=last_mass_outflow[f];escaped_energy[f]+=last_energy_outflow[f];
     escaped_heat[f]+=last_heat_outflow[f];
   }
-  long double residual=energy_after-energy_before-last_gravity_work-last_heating;
+  long double residual=energy_after-energy_before-last_gravity_work-last_heating-last_capture_energy;
   for(int f=0;f<NF;++f)residual+=last_energy_outflow[f]+last_heat_outflow[f];
   energy_ledger_error=std::abs(residual)/std::max(energy_before,1e-300L);
   require(std::isfinite(energy_ledger_error)&&energy_ledger_error<1e-8,"energy/work ledger failed");
+  cumulative_formed_binaries+=last_formed_binaries;
+  cumulative_capture_energy+=last_capture_energy;
   state.swap(next);last_change=change;return change;
 }
 

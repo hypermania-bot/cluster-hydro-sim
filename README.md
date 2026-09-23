@@ -20,7 +20,9 @@ selector. Tests cover hydrostatic projection, the shared Statler evolution
 and output readers. An experimental fixed-grid moving-fluid solver advances
 continuity, momentum, random-plus-bulk energy and enclosed mass in one
 banded solve; its derivation and validation status are documented in
-[`docs/moving_three_fluid.md`](docs/moving_three_fluid.md). The mode-2
+[`docs/moving_three_fluid.md`](docs/moving_three_fluid.md). Its POWER_LAW
+tidal-capture implementation and Statler comparison commands are described in
+[`docs/moving-binary-formation.md`](docs/moving-binary-formation.md). The mode-2
 binary-formation example has also been audited operator by operator; formation
 is conservative to roundoff, but the complete trajectory is currently
 dominated by nonconservative grid realignment.
