@@ -77,5 +77,21 @@ only profiles within 5% of those targets rather than substituting a distant
 endpoint. The paper does not tabulate exact times, so these scan-read epochs
 remain approximate and must be refined before a quantitative profile fit.
 
-No Heggie reproduction is claimed by this runner; it requires a separately
-specified reference model and settings.
+The separate Heggie primordial-binary gas models are described in
+[heggie-reproduction.md](heggie-reproduction.md); they do not enable capture.
+
+## Completed comparison (24 September 2026)
+
+Both 500 and 1000 cells reach 10000 initial half-mass relaxation times.
+The density peak is 42.52 / 42.91 at 14.331 / 14.326 trh, with final binary
+counts 3304.55 / 3374.01. The 500-cell mass-plus-outflow relative error stays
+below 1.18e-14 and its gas-energy ledger residual below 4.58e-17.
+Only 1.44e-7 of its mass crosses the outer boundary.
+
+**The late evolution is not spatially converged, and the reference curves
+are not reproduced quantitatively.** The reference density peak is several
+thousand, not 43. Late central densities differ by roughly a factor ten
+between resolutions; final central binary/single density ratios are 0.0209
+and 0.0070. Do not infer physical agreement from conservation or the similar
+peak times and binary counts. The plotting option `--compare other_run`
+adds a time-aligned `resolution_comparison.pdf` and numerical metrics.

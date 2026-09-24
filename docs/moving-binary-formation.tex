@@ -1,9 +1,10 @@
 \documentclass[11pt]{article}
 \usepackage[a4paper,margin=0.8in]{geometry}
 \usepackage{amsmath,amssymb,booktabs,hyperref}
+\usepackage{graphicx}
 \title{Tidal capture in the moving-fluid solver}
 \author{}
-\date{23 September 2026}
+\date{24 September 2026}
 \begin{document}
 \maketitle
 \section{Source and discrete equations}
@@ -125,4 +126,31 @@ implement the paper's evolving core-number prescription.
 Open fluid-boundary escape is separately measured;
 it is not a substitute for an encounter-ejection prescription. Spatial and
 timestep convergence must be checked before interpreting a residual mismatch.
+\subsection{Completed runs and remaining discrepancy}
+Both the 500- and 1000-cell runs reach $10^4t_{rh}$. The 500-cell run
+peaks at $t/t_{rh}=14.3314$ with central density $42.5166$ in the plotted
+units and ends with $3304.55$ binaries. The 1000-cell results are
+$14.3257$, $42.9097$, and $3374.01$, respectively. For the 500-cell run,
+mass including exported material changes by at most $1.18\times10^{-14}$;
+the largest accepted-step gas-energy ledger residual is $4.58\times10^{-17}$.
+Boundary export is only $1.44\times10^{-7}$ of the initial mass.
+
+These checks do not establish a converged reproduction. The reference
+central-density peak is several thousand rather than about 43, and
+HydroSim expands its core much more strongly after the bounce. In addition,
+the two resolutions disagree substantially at late times: the final
+central binary-to-single density ratios are $0.0209$ and $0.0070$.
+Time-aligned late density differences reach a factor of about ten.
+Thus conservation and close agreement of the peak time and total binary
+count do not validate the late core profiles. The overlays show this
+failure rather than shifting or renormalizing curves to hide it.
+Before assigning the discrepancy entirely to physical closures, the
+moving solver needs spatial and timestep convergence of its post-collapse
+core transport, reference-force correction, and energy/work quadrature.
+\IfFileExists{../output/moving_statler_matched500/plots/resolution_comparison.pdf}{
+\begin{figure}[p]\centering
+\includegraphics[width=.92\textwidth]{../output/moving_statler_matched500/plots/resolution_comparison.pdf}
+\caption{500-cell (solid) and 1000-cell (dashed) histories at the same physical
+times. This comparison demonstrates unresolved late evolution.}
+\end{figure}}{}
 \end{document}

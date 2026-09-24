@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 import unittest
+import tempfile
 
 import numpy as np
 
@@ -10,6 +11,16 @@ import plot_moving_statler as moving
 
 
 class MovingStatlerTest(unittest.TestCase):
+    def test_identical_convergence_histories(self):
+        times = np.geomspace(1, 100, 12)
+        history = {key:np.ones_like(times) for key in ("rho0","nb","vms2","ratio","rc","rh")}
+        history["time"] = times
+        run = moving.atlas.RunData(history, np.array([]), {})
+        with tempfile.TemporaryDirectory() as directory:
+            result = moving.compare_runs(run, run, Path(directory))
+            self.assertEqual(max(result.values()), 0)
+            self.assertTrue((Path(directory)/"resolution_comparison.pdf").is_file())
+
     def test_smoke_output_and_conservation(self):
         directory = Path(__file__).resolve().parents[1] / "output/check_moving_statler"
         run = moving.atlas.load_run(directory)

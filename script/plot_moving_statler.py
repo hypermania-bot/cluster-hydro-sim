@@ -32,11 +32,43 @@ def summarize(directory: Path, run: atlas.RunData) -> dict:
     }
 
 
+def compare_runs(coarse: atlas.RunData, fine: atlas.RunData, output: Path) -> dict:
+    """Compare on common physical times, without fitting the collapse epoch."""
+    end = min(coarse.history["time"][-1], fine.history["time"][-1])
+    if end <= 1:
+        raise ValueError("convergence comparison needs histories extending past one trh")
+    times = np.geomspace(1, end, 3000)
+    figure, axes = atlas.plt.subplots(3, 2, figsize=(9, 10))
+    metrics = {}
+    for axis, (key, label) in zip(axes.flat, [
+        ("rho0", r"$\rho_0/(M/r_0^3)$"), ("nb", r"$N_b$"),
+        ("vms2", r"$v_{m,s}^2/(GM/r_0)$"), ("ratio", r"$\rho_{b,0}/\rho_{s,0}$"),
+        ("rc", r"$r_c/r_0$"), ("rh", r"$r_h/r_0$"),
+    ], strict=True):
+        curves = []
+        for run, style, name in [(coarse, "-", "coarse"), (fine, "--", "fine")]:
+            values = np.interp(times, run.history["time"], run.history[key])
+            curves.append(values)
+            axis.loglog(times, values, style, label=name)
+        for name, mask in [("early", times <= 20), ("late", times > 20)]:
+            if np.any(mask):
+                metrics[f"{key}_{name}_max_relative_difference"] = float(
+                    np.max(np.abs(curves[0][mask]/curves[1][mask]-1)))
+        axis.set(xlabel=r"$t/t_{rh}$", ylabel=label)
+        axis.grid(alpha=.25);axis.legend(frameon=False)
+    figure.tight_layout()
+    figure.savefig(output / "resolution_comparison.pdf")
+    atlas.plt.close(figure)
+    (output / "resolution_comparison.json").write_text(json.dumps(metrics, indent=2)+"\n")
+    return metrics
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("reference_pdf", type=Path)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--compare", type=Path, help="second resolution, compared at the same times")
     args = parser.parse_args()
     run = atlas.load_run(args.directory)
     output = args.output or args.directory / "plots"
@@ -68,6 +100,8 @@ def main():
     summary = summarize(args.directory, run)
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
+    if args.compare:
+        print(json.dumps(compare_runs(run, atlas.load_run(args.compare), output), indent=2))
 
 
 if __name__ == "__main__":

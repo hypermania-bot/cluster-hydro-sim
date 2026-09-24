@@ -370,3 +370,10 @@ The repository does not currently declare a software license.
 The Statler comparison now uses the shared `evolve()` driver and saved
 `ThreeFluidParam` settings, with observer-only output. See
 [the setup, numerical scope and reproduction commands](docs/statler-reproduction.md).
+
+The moving-fluid solver also supports conservative POWER_LAW capture in its
+coupled band solve. See [moving Statler runs](docs/moving-binary-formation.md)
+and the separate [Heggie primordial-binary gas tests](docs/heggie-reproduction.md)
+for derivations, run commands, and PDF overlays. These are comparison tools,
+not claims of quantitative reproduction: late spatial convergence and
+significant reference discrepancies remain unresolved.

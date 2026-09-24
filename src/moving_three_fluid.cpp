@@ -46,6 +46,14 @@ MovingThreeFluidSim::Face MovingThreeFluidSim::boundaryFlux(const Vec& x) const 
   Face result;
   const double r=x[0],v=x[1],u=x[2];
   const double c=std::sqrt(gamma_gas*beta*u/param.epsilon);
+  if(param.reflecting_boundary) {
+    // Odd ghost velocity gives zero mass and energy flux. Freeze acoustic
+    // impedance in the implicit wall pressure, as for interior viscosity.
+    result.flux[1]=beta*r*u/param.epsilon+r*c*v;
+    result.left(1,0)=beta*u/param.epsilon+c*v;
+    result.left(1,1)=r*c;result.left(1,2)=beta*r/param.epsilon;
+    return result;
+  }
   if(v-c>=0) {result.flux=flux(x);result.left=fluxJacobian(x);}
   else if(v+3*c>0) {
     const double chi=(3*c+v)/(4*c);
@@ -115,6 +123,9 @@ void MovingThreeFluidSim::validate() const {
     positive(param.StopDensity)&&std::isfinite(param.maxTime)&&param.maxTime>=0&&
     param.maxSteps>=0,"invalid parameters");
   for(double x:param.mass) require(positive(x),"invalid particle mass");
+  require((param.reflecting_boundary==0||param.reflecting_boundary==1)&&
+    (param.heating_dispersion==HEATING_DONOR_DISPERSION||
+     param.heating_dispersion==HEATING_RELATIVE_DISPERSION),"invalid boundary/heating closure");
   require(param.binary_formation==BINARY_FORMATION_OFF||
           param.binary_formation==BINARY_FORMATION_POWER_LAW,"unsupported binary formation mode");
   require(std::isfinite(param.capture_coefficient)&&param.capture_coefficient>=0,
@@ -183,6 +194,7 @@ void MovingThreeFluidSim::buildFluxes() {
       face.heat=-k*(zr-zl);face.heat_left=k/(2*zl);face.heat_right=-k/(2*zr);
     }
     auto& face=fluxes[3*n+f];face=boundaryFlux(primitive(n-1,f));
+    if(param.reflecting_boundary)continue;
     const double h=param.c2[f]*edges[n]*edges[n]*value(n-1,f,RHO)/
       (param.thermal_length_over_radius*edges[n]+edges[n]-centres[n-1]);
     face.heat=h*std::sqrt(value(n-1,f,U));
@@ -207,7 +219,12 @@ void MovingThreeFluidSim::thermalSource(int i,Vec& source,Mat& derivative) const
       source[f]-=coeff*(param.mass[f]*u-param.mass[h]*uh);
       derivative(f,f)-=coeff*param.mass[f];derivative(f,h)+=coeff*param.mass[h];
     }
-    if((f==FS&&h==FB)||(f==FB)||(f==FD&&h==FB)) {
+    if(param.heating_dispersion==HEATING_RELATIVE_DISPERSION) {
+      const double sum=u+value(i,h,U),b=r*param.c4[3*f+h]*value(i,h,RHO);
+      source[f]+=b/std::sqrt(sum);
+      const double slope=-b/(2*std::pow(sum,1.5));
+      derivative(f,f)+=slope;derivative(f,h)+=slope;
+    } else if((f==FS&&h==FB)||(f==FB)||(f==FD&&h==FB)) {
       const int donor=f==FB?h:f;
       const double ud=value(i,donor,U),b=r*param.c4[3*f+h]*value(i,h,RHO);
       source[f]+=b/std::sqrt(ud);derivative(f,donor)-=b/(2*std::pow(ud,1.5));

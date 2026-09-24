@@ -1,6 +1,8 @@
 #pragma once
 #include "three_fluid.hpp"
 
+constexpr long long HEATING_DONOR_DISPERSION=0, HEATING_RELATIVE_DISPERSION=1;
+
 // Dimensionless evolution controls only. Initial profiles/grid and observers
 // are supplied separately. Explicit stripping is not supported.
 struct MovingThreeFluidParam {
@@ -11,6 +13,8 @@ struct MovingThreeFluidParam {
   std::array<double, NF*NF> c1{}, c4{};
   long long binary_formation = BINARY_FORMATION_OFF;
   double capture_coefficient = 0; // number source A rho_s^2 U_s^-0.6
+  long long heating_dispersion = HEATING_DONOR_DISPERSION;
+  long long reflecting_boundary = 0; // insulated rigid wall; otherwise vacuum outflow
   double thermal_length_over_radius = 1;
   double Deltat = 1e-5;
   double max_timestep = 1e-3;

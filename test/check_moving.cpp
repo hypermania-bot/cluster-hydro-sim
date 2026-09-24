@@ -3,6 +3,7 @@
 #include "../src/moving_statler_observer.hpp"
 #include "../src/statler_reproduction.hpp"
 #include "../src/moving_statler_initialization.hpp"
+#include "../src/heggie_reproduction.hpp"
 #include <iostream>
 #include <iomanip>
 #include <filesystem>
@@ -122,6 +123,60 @@ void equilibriumAndTide() {
     check(std::abs(got-expected)<1e-12*expected,"tidal source or force-balance guard");
   }
 }
+void reflectingAndRelativeHeating() {
+  auto s=setup(24);s.param.reflecting_boundary=1;s.param.c2.fill(.1);
+  s.param.maxSteps=30;
+  std::array<double,3> initial{};
+  for(int f=0;f<NF;++f)initial[f]=s.value(s.zones()-1,f,S::MASS);
+  auto observer=[&](const S& x) {
+    for(int f=0;f<NF;++f) {
+      check(x.escaped_mass[f]==0&&x.escaped_energy[f]==0&&x.escaped_heat[f]==0,"reflecting wall leaked");
+      check(std::abs(x.value(x.zones()-1,f,S::MASS)/initial[f]-1)<1e-12,"reflecting mass conservation");
+    }
+    check(x.energy_ledger_error<1e-12,"reflecting energy ledger");
+  };s.evolve(observer);
+  auto off=setup(12),on=off;
+  on.param.heating_dispersion=HEATING_RELATIVE_DISPERSION;
+  on.param.c4[FS*3+FB]=.6;off.assembleStep();on.assembleStep();
+  const auto difference=(dense(on)-dense(off)).eval();
+  for(int i=0;i<4;++i) {
+    const double sum=on.value(i,FS,S::U)+on.value(i,FB,S::U);
+    const double b=.6*on.value(i,FS,S::RHO)*on.value(i,FB,S::RHO);
+    const double source=on.Deltat*on.volume(i)*b/std::sqrt(sum);
+    const int row=S::index(i,FS,S::U);
+    check(std::abs((on.rightHandSide()[row]-off.rightHandSide()[row])/source-1)<1e-12,
+          "relative dispersion heating RHS");
+    for(int f:{FS,FB})check(std::abs(difference(row,S::index(i,f,S::U))/(source/(2*sum))-1)<1e-10,
+          "relative dispersion cross-temperature derivative");
+  }
+  on=off;on.param.heating_dispersion=HEATING_RELATIVE_DISPERSION;
+  on.param.c4[FB*3+FB]=.6;on.assembleStep();
+  const auto diagonal=(dense(on)-dense(off)).eval();
+  for(int i=0;i<4;++i) {
+    const int row=S::index(i,FB,S::U);
+    const double u=on.value(i,FB,S::U),r=on.value(i,FB,S::RHO);
+    const double source=on.Deltat*on.volume(i)*.6*r*r/std::sqrt(2*u);
+    check(std::abs(diagonal(row,row)/(source/(2*u))-1)<1e-10,
+          "same-component heating must include both temperature derivatives");
+  }
+}
+
+void heggieSmoke() {
+  for(int model=0;model<4;++model) {
+    HeggieInitParam initial;initial.zones=32;initial.model=model;
+    S s;s.param.maxSteps=20;const auto units=initializeHeggie(s,initial);
+    check(s.param.binary_formation==BINARY_FORMATION_OFF&&s.param.reflecting_boundary==1,
+          "Heggie physics selection");
+    if(model==1)check(std::abs(s.value(0,FB,S::RHO)/s.value(0,FS,S::RHO)-.01)<1e-15,
+                     "Heggie segregation fraction");
+    if(model>=2)check(s.param.c4[FS*3+FB]==2*s.param.c4[FB*3+FS],"Heggie heating partition");
+    check(units.time_unit_over_trh>2&&units.time_unit_over_trh<3,"Heggie time conversion");
+    const std::string dir="output/check_heggie_"+std::to_string(model)+"/";
+    std::filesystem::create_directories(dir);HeggieObserver observer(units,dir);
+    s.evolve(observer);observer.finish(dir,s,"SMOKE");
+    check(std::filesystem::file_size(dir+"history.dat")==21*13*sizeof(double),"Heggie binary history layout");
+  }
+}
 void splitSymmetry() {
   auto s=setup(48);for(int i=0;i<s.zones();++i) {
     s.state[S::index(i,FD,S::RHO)]=s.value(i,FS,S::RHO);
@@ -181,6 +236,7 @@ void thermalAgreement() {
 void parameterRoundTrip() {
   auto s=setup();s.param.q=.123;s.param.c1.fill(.314);s.param.mass={1,2,3};
   s.param.binary_formation=BINARY_FORMATION_POWER_LAW;s.param.capture_coefficient=.42;
+  s.param.reflecting_boundary=1;s.param.heating_dispersion=HEATING_RELATIVE_DISPERSION;
   const std::string dir="output/check_moving_parameters/";
   std::filesystem::create_directories(dir);save_param_for_Mathematica(s.param,dir);
   MovingThreeFluidParam result{};std::ifstream file(dir+"param.dat",std::ios::binary);
@@ -359,6 +415,7 @@ int main(int argc,char**argv) {try {
   std::cout<<"checking capture ledger"<<std::endl;captureLedger();
   std::cout<<"checking moving Statler"<<std::endl;movingStatlerSmoke();
   equilibriumAndTide();splitSymmetry();failEarly();dilutedReference();tidalEvolution();
+  reflectingAndRelativeHeating();heggieSmoke();
   thermalAgreement();parameterRoundTrip();singleSplitAgreement();checkerboardDamping();noConductionEvolution();rawMassTransport();
   std::cout<<"moving checks passed: band/dense, mass/heat export, equilibrium, q, split, fail-early\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

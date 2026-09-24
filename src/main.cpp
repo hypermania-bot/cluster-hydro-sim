@@ -5,6 +5,7 @@
 #include "moving_comparison.hpp"
 #include "moving_statler_observer.hpp"
 #include "moving_statler_initialization.hpp"
+#include "heggie_reproduction.hpp"
 #include <filesystem>
 
 void statler_reproduction(bool direct, const std::string& directory,
@@ -322,6 +323,14 @@ void binary_formation(void){
 int main(int argc, char** argv) {
   if(argc>1) {
     try {
+      if(std::string(argv[1])=="moving-heggie") {
+        if(argc<4||argc>6)throw std::invalid_argument(
+          "usage: main moving-heggie output_directory model(0:single,1:segregation,2:BS,3:BS+BB) [f_star] [zones]");
+        HeggieInitParam initial;initial.model=std::stoll(argv[3]);
+        if(argc>4)initial.f_star=std::stod(argv[4]);
+        if(argc>5)initial.zones=std::stoll(argv[5]);
+        runMovingHeggie(argv[2],initial);return 0;
+      }
       if(std::string(argv[1])=="moving-statler") {
         if(argc<3||argc>6)throw std::invalid_argument(
           "usage: main moving-statler output_directory [zones=500] [final_time_trh=10000] [max_steps=2000000]");
