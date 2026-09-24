@@ -45,13 +45,23 @@ differences of about .92 (single density), .97 (binary density), 2.17 (core
 radius), and .80 (core-mass fraction). Thus increasing resolution does not
 yet establish convergence.
 
-A 2000-cell Statler run reached approximately 1309 trh before the long
+A 2000-cell Statler run reached approximately 1728.160 trh before the long
 process was stopped. The runner serializes the full history only when
 `evolve()` returns, so this interrupted run has a budget log but no
 reconstructable profile/history files and cannot honestly be plotted. A
 second attempt was stopped during its slow initial phase. The complete
 Statler 2000-cell overlay remains pending; the partial run is retained as a
 timing record, not used as scientific output.
+The endpoint is recovered from the last complete budget row; the earlier
+1309-trh report used the less frequent progress messages. Its final recorded
+timestep is .04633 code units (.1125 trh), so the timestep is allowed to
+increase. Small early timesteps, including approximately 5.29e-13 code
+units when a trace binary density changes rapidly, contribute to runtime.
+
+Six bounded startup timing trials per build at 2000 cells measured median
+step times of 24.96 ms with O3/native, 25.19 ms with O3/LTO/no-math-errno,
+and 25.70 ms with Ofast/LTO. These overlapping timings show no reliable
+aggressive-optimization speedup; they are not late-time benchmarks.
 
 ## Commands
 
@@ -72,7 +82,7 @@ reference post-collapse solution was reproduced. The Statler run retains
 the approximate reference snapshot epochs used by the matched500 run.
 Generated PDFs/data are not committed.
 
-The 2000-cell jobs were launched from code revision `f65379d`. Results will
-be added after their actual stopping conditions and conservation budgets
-have been checked; the initial 500/1000 comparison above is not a substitute
-for those runs.
+The 2000-cell jobs were launched from code revision `f65379d`; the subsequent
+audit used `2e49bce`. See [the Fig. 4 density audit](heggie-reproduction.md#2000-cell-fig-4-density-audit)
+for the normalization check and remaining discrepancy. The initial 500/1000
+comparison is not a substitute for a completed 2000-cell Statler run.

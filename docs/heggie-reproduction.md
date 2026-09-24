@@ -24,9 +24,11 @@ The companion [TeX note](heggie-reproduction.tex) derives the coefficients;
   N_star=300000 sets only the small dynamical/relaxation time ratio here;
   it is not the 2500-star N-body setup later in the paper.
 - Gas figure captions do not explicitly restate absolute density/length
-  units. We assume the standard G=M=-4E0=1 convention used for the paper's
-  N-body models. This is not a fitted normalization and requires verification
-  against original gas-model data; Fig. 3 ratios are independent of it.
+  units. We use G=M=-4E0=1. Heggie & Ramamani (1989), p. 760, explicitly
+  adopts this convention for the earlier gas implementation cited in the
+  1992 paper. This supports, but does not independently establish, the
+  normalization of the original Fig. 4 data. No normalization is fitted;
+  Fig. 3 ratios are independent of it.
 
 Evolution settings remain dimensionless in `MovingThreeFluidParam`.
 `HeggieInitParam` and `HeggieObserverParam` separately own initialization and
@@ -100,3 +102,35 @@ correction is frozen at fixed radii; as the core expands and its gravity
 weakens, its relative importance can grow. Auditing this correction and
 discrete gravitational work is a concrete next numerical check, not a
 demonstrated explanation of the entire discrepancy.
+
+## 2000-cell Fig. 4 density audit
+
+The audit uses revision `2e49bce` and the completed 2000-cell BS+BB history.
+In standard N-body units the Plummer scale is a=3*pi/16 and the total
+initial central density is 3/(4*pi*a^3)=1.16804. With binary number fraction
+f=.03, the single and binary mass fractions are (1-f)/(1+f) and 2*f/(1+f).
+The saved initial central densities, 1.09999946 and .06804120, agree with
+these conventions. No missing constant conversion factor was demonstrated.
+
+Fig. 4 begins at t/trh(0)=1, not at the unevolved initial state. Approximate
+readings of the solid reference curves give:
+
+| t/trh(0) | HydroSim singles | HydroSim binaries | Reference singles | Reference binaries |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1.39560 | .243745 | 3.6 | .6 |
+| 10 | 5.34491 | 5.49701 | 10.8 | 9.5 |
+
+Reference values are scan estimates, not original numerical data. The
+left-edge offset resembles a common factor of about 2.5, but the required
+factors near the peak differ between components and are smaller. A common
+vertical rescaling therefore cannot reconcile the entire evolution or the
+component density ratio. The cause remains unresolved: reference settings,
+transport/heating accuracy and spatial convergence need further checks.
+Calling this a quantitatively matched reproduction would be premature.
+
+The scanned horizontal decade ticks also suggest a right frame endpoint
+near 158, whereas the overlay currently uses 150. This small horizontal
+registration uncertainty cannot explain the factor-of-two density offset.
+No rescaling, solver change or new evolution run was made for this audit.
+
+Source: [Heggie & Ramamani (1989), MNRAS 237, 757, p. 760](https://adsabs.harvard.edu/pdf/1989MNRAS.237..757H).
